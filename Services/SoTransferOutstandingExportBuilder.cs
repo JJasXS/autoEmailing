@@ -7,15 +7,17 @@ using SqlAccountingEmailWorker.Models;
 
 namespace SqlAccountingEmailWorker.Services;
 
-/// <summary>Excel + PDF for SO outstanding transfer — layout matches ERP reference (group header + transfer sub-rows).</summary>
+/// <summary>Excel + PDF for SO outstanding transfer. PDF keeps ERP-style group rows; Excel is flat (one row per transfer) for import.</summary>
 public sealed class SoTransferOutstandingExportBuilder
 {
     /// <summary>Banner title on exports (print / PDF).</summary>
     private const string ReportListingTitle = "Outstanding sales order listing";
     private const int ColCount = 10;
+    private const int ExcelFlatColCount = 9;
     private const int LeftCols = 7;
     private static readonly CultureInfo DisplayCulture = CultureInfo.GetCultureInfo("en-GB");
 
+    /// <summary>PDF table columns (grouped layout).</summary>
     private static readonly string[] Headers =
     [
         "Seq.",
@@ -30,6 +32,20 @@ public sealed class SoTransferOutstandingExportBuilder
         "Tfer Qty"
     ];
 
+    /// <summary>Excel import layout: one row per transfer; columns match import spec (no sequence).</summary>
+    private static readonly string[] ExcelFlatHeaders =
+    [
+        "Date",
+        "Company Name",
+        "Item Code",
+        "Description",
+        "Ext. No",
+        "Orig. Qty",
+        "Transfer Qty",
+        "O/S Qty",
+        "Delivery Date"
+    ];
+
     public byte[] BuildExcel(IReadOnlyList<SoTransferOutstandingBlock> blocks)
     {
         var asAt = DateTime.Today.ToString("dd/MM/yyyy", DisplayCulture);
@@ -38,17 +54,17 @@ public sealed class SoTransferOutstandingExportBuilder
         using var wb = new XLWorkbook();
         var ws = wb.AddWorksheet("SO Transfer");
         ws.Cell(1, 1).Value = ReportListingTitle;
-        ws.Range(1, 1, 1, ColCount).Merge();
+        ws.Range(1, 1, 1, ExcelFlatColCount).Merge();
         ws.Row(1).Style.Font.Bold = true;
         ws.Row(1).Style.Font.FontSize = 12;
         ws.Row(1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
 
         ws.Cell(2, 1).Value = $"As at {asAt}";
-        ws.Range(2, 1, 2, ColCount).Merge();
+        ws.Range(2, 1, 2, ExcelFlatColCount).Merge();
         ws.Row(2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
 
         ws.Cell(3, 1).Value = $"Run (generated): {runAt}";
-        ws.Range(3, 1, 3, ColCount).Merge();
+        ws.Range(3, 1, 3, ExcelFlatColCount).Merge();
         ws.Row(3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
         ws.Row(3).Style.Font.FontColor = XLColor.DimGray;
 
@@ -60,95 +76,89 @@ public sealed class SoTransferOutstandingExportBuilder
         ws.PageSetup.Footer.Right.AddText(XLHFPredefinedText.NumberOfPages, XLHFOccurrence.AllPages);
 
         var r = 5;
-        for (var c = 0; c < Headers.Length; c++)
-            ws.Cell(r, c + 1).Value = Headers[c];
-        var headerRow = ws.Range(r, 1, r, ColCount);
+        for (var c = 0; c < ExcelFlatHeaders.Length; c++)
+            ws.Cell(r, c + 1).Value = ExcelFlatHeaders[c];
+        var headerRow = ws.Range(r, 1, r, ExcelFlatColCount);
         headerRow.Style.Font.Bold = true;
         headerRow.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
         headerRow.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
         headerRow.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
         r++;
 
-        string? lastSoKey = null;
         foreach (var b in blocks)
         {
-            if (!string.Equals(b.SoDocKey, lastSoKey, StringComparison.Ordinal))
-            {
-                ws.Range(r, 1, r, ColCount).Merge();
-                ws.Cell(r, 1).Value = $"{b.SoDocNo}    {b.CompanyName}";
-                ws.Cell(r, 1).Style.Font.Bold = true;
-                ws.Cell(r, 1).Style.Font.FontSize = 11;
-                ws.Cell(r, 1).Style.Fill.BackgroundColor = XLColor.FromArgb(235, 242, 252);
-                ws.Cell(r, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
-                r++;
-                lastSoKey = b.SoDocKey;
-            }
-
             var transfers = b.Transfers;
-            var first = transfers.Count > 0 ? transfers[0] : null;
-            WriteMainRow(ws, r, b, first);
-            r++;
-
-            for (var i = 1; i < transfers.Count; i++)
+            if (transfers.Count == 0)
             {
-                WriteSubRow(ws, r, transfers[i]);
+                WriteExcelFlatRow(ws, r, b, null);
                 r++;
+            }
+            else
+            {
+                foreach (var t in transfers)
+                {
+                    WriteExcelFlatRow(ws, r, b, t);
+                    r++;
+                }
             }
         }
 
-        ApplyExcelColumnWidths(ws);
-        ws.Column(3).Style.Alignment.WrapText = true;
+        ApplyExcelFlatColumnWidths(ws);
+        ws.Column(4).Style.Alignment.WrapText = true;
         ws.SheetView.FreezeRows(5);
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
         return ms.ToArray();
     }
 
-    private static void WriteMainRow(IXLWorksheet ws, int r, SoTransferOutstandingBlock b, SoTransferDocumentLine? first)
+    /// <summary>One import row per transfer. <paramref name="t"/> null = blank transfer date/qty. Ext. No = SO document number.</summary>
+    private static void WriteExcelFlatRow(IXLWorksheet ws, int r, SoTransferOutstandingBlock b, SoTransferDocumentLine? t)
     {
         var c = 1;
-        ws.Cell(r, c++).Value = b.LineSeq;
+        var dateCell = ws.Cell(r, c++);
+        if (t?.TransferDocDate is { } transferDate)
+            dateCell.Value = transferDate.Date;
+        else
+            dateCell.Clear();
+
+        ws.Cell(r, c++).Value = b.CompanyName;
         ws.Cell(r, c++).Value = b.ItemCode;
         ws.Cell(r, c++).Value = b.Description;
-        ws.Cell(r, c++).Value = b.UnitPrice;
-        ws.Cell(r, c++).Value = FormatShortDate(b.DeliveryDate);
+        ws.Cell(r, c++).Value = b.SoDocNo;
         ws.Cell(r, c++).Value = b.OrigQty;
+        ws.Cell(r, c++).Value = t is null ? (decimal?)null : t.TransferQty;
         ws.Cell(r, c++).Value = b.OutstandingQty;
-        ws.Cell(r, c++).Value = FormatShortDate(first?.TransferDocDate);
-        ws.Cell(r, c++).Value = first?.TransferDocNo ?? "";
-        ws.Cell(r, c++).Value = first?.TransferQty ?? (decimal?)null;
-        StyleNumericCols(ws, r);
-        ws.Range(r, 1, r, ColCount).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+
+        var deliveryCell = ws.Cell(r, c);
+        if (b.DeliveryDate is { } del)
+            deliveryCell.Value = del.Date;
+        else
+            deliveryCell.Clear();
+
+        StyleExcelFlatNumericCols(ws, r);
+        StyleExcelFlatDateCols(ws, r);
+        ws.Range(r, 1, r, ExcelFlatColCount).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
     }
 
-    private static void WriteSubRow(IXLWorksheet ws, int r, SoTransferDocumentLine t)
+    private static void StyleExcelFlatNumericCols(IXLWorksheet ws, int r)
     {
-        for (var col = 1; col <= LeftCols; col++)
-        {
-            ws.Cell(r, col).Clear();
-            ws.Cell(r, col).Style.Fill.BackgroundColor = XLColor.FromArgb(248, 250, 252);
-        }
-
-        ws.Cell(r, 8).Value = FormatShortDate(t.TransferDocDate);
-        ws.Cell(r, 9).Value = t.TransferDocNo;
-        ws.Cell(r, 10).Value = t.TransferQty;
-        ws.Cell(r, 10).Style.NumberFormat.Format = "#,##0.00";
-        ws.Range(r, 1, r, ColCount).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
-    }
-
-    private static void StyleNumericCols(IXLWorksheet ws, int r)
-    {
-        ws.Cell(r, 4).Style.NumberFormat.Format = "#,##0.00";
         ws.Cell(r, 6).Style.NumberFormat.Format = "#,##0.00";
         ws.Cell(r, 7).Style.NumberFormat.Format = "#,##0.00";
-        ws.Cell(r, 10).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(r, 8).Style.NumberFormat.Format = "#,##0.00";
     }
 
-    /// <summary>Minimum widths so price/date/qty columns do not visually merge.</summary>
-    private static void ApplyExcelColumnWidths(IXLWorksheet ws)
+    private static void StyleExcelFlatDateCols(IXLWorksheet ws, int r)
+    {
+        const string dFmt = "dd/MM/yyyy";
+        ws.Cell(r, 1).Style.DateFormat.Format = dFmt;
+        ws.Cell(r, 9).Style.DateFormat.Format = dFmt;
+    }
+
+    /// <summary>Minimum widths so price/date/qty columns do not visually merge (flat import layout).</summary>
+    private static void ApplyExcelFlatColumnWidths(IXLWorksheet ws)
     {
         // ClosedXML column width is roughly “characters” for Calibri 11.
-        double[] mins = [5, 12, 36, 11, 11, 11, 11, 11, 16, 11];
+        double[] mins = [11, 28, 14, 40, 14, 11, 11, 11, 12];
         for (var i = 0; i < mins.Length; i++)
         {
             var col = ws.Column(i + 1);

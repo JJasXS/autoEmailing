@@ -38,9 +38,9 @@
 
   <p class="hint">
     <strong>Local HTTP preview (port 2086):</strong> from the project or publish folder run
-    <code>dotnet run -- --preview-so</code> — then open <code>http://localhost/</code> (default document is this file).
-    Default is <code>2086</code>. Optional override:
-    <code>set PREVIEW_SO_PORT=2086</code> (or another port) then run the same command.
+    <code>dotnet run -- --preview-so</code> — then open <code>http://localhost:2086/</code> (default document is <code>so-transfer-preview.html</code> from the listener).
+    Override port: <code>set PREVIEW_SO_PORT=2086</code> (or another port) then run the same command.
+    <br />If you use the <strong>EC2 public DNS or IP</strong> in the URL and see <strong>400 Invalid Hostname</strong>, set <code>PREVIEW_SO_ANY_HOST=1</code> in <code>.env</code> and on Windows run once (elevated): <code>netsh http add urlacl url=http://+:2086/ user=Everyone</code> (match the port).
     <br /><strong>SO transfer report (Excel/PDF):</strong> <a href="/so-transfer">/so-transfer</a> (same server).
   </p>
 
