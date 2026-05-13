@@ -10,6 +10,7 @@
   <ItemGroup>
     <None Update=".env.example" CopyToOutputDirectory="PreserveNewest" />
     <None Update=".env" CopyToOutputDirectory="PreserveNewest" Condition="Exists('.env')" />
+    <None Include="EmailFormats\preview.html" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

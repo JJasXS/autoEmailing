@@ -218,6 +218,7 @@ public sealed class EmailSender
 
     private static string BuildHtmlBody(EmailRecipient recipient, DateOnly scheduleDate)
     {
+        // Layout preview (open in browser): EmailFormats/preview.html — section "Daily batch".
         var safeName = System.Net.WebUtility.HtmlEncode(recipient.Name);
         var safeCode = System.Net.WebUtility.HtmlEncode(recipient.Code);
         var dateStr = scheduleDate.ToString("yyyy-MM-dd", null);

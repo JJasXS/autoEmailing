@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SQL Accounting Email Worker — format preview</title>
+  <style>
+    :root { --border: #ccc; --muted: #555; --bg: #f6f8fa; }
+    body { font-family: Segoe UI, system-ui, sans-serif; margin: 0; color: #222; line-height: 1.45; }
+    header { background: #1a365d; color: #fff; padding: 1rem 1.25rem; }
+    header h1 { margin: 0 0 0.35rem; font-size: 1.15rem; font-weight: 600; }
+    header p { margin: 0; font-size: 0.875rem; opacity: 0.92; }
+    main { max-width: 56rem; margin: 0 auto; padding: 1.25rem; }
+    section { margin-bottom: 2rem; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    section h2 { margin: 0; padding: 0.65rem 1rem; background: var(--bg); font-size: 1rem; border-bottom: 1px solid var(--border); }
+    .meta { padding: 0.5rem 1rem; font-size: 0.8rem; color: var(--muted); background: #fff; border-bottom: 1px solid #eee; }
+    .preview { padding: 1rem; background: #fff; }
+    pre.sample { margin: 0; padding: 1rem; background: #fafafa; border-top: 1px solid #eee; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; }
+    code { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Email format preview (not sent)</h1>
+    <p>
+      Static reference only. Daily HTML must stay aligned with
+      <code>Services/EmailSender.cs</code> → <code>BuildHtmlBody</code>.
+      Scheduled subject/body sample matches <code>appsettings.json</code> → <code>App:ScheduledTestEmail</code>.
+    </p>
+  </header>
+  <main>
+    <section id="daily">
+      <h2>1. Daily batch — HTML (<code>SendDailyNotificationAsync</code>)</h2>
+      <div class="meta">
+        <strong>Subject (code):</strong> Daily SQL Accounting Notification
+        · <strong>Sample user:</strong> Name = <em>Demo User</em>, Code = <em>ADMIN</em>, Schedule date = <em>2026-05-13</em>
+      </div>
+      <div class="preview">
+        <!-- Mirror of EmailSender.BuildHtmlBody — edit both when changing layout -->
+        <div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;">
+          <p>Hello Demo User,</p>
+          <p>This is your scheduled <strong>Daily SQL Accounting Notification</strong>.</p>
+          <ul>
+            <li><strong>User code:</strong> ADMIN</li>
+            <li><strong>Date (2026-05-13):</strong> calendar date in your configured schedule time zone</li>
+          </ul>
+          <p>If you have questions, contact your system administrator.</p>
+          <p style="color:#666;font-size:12px;">Message generated automatically. Please do not reply.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="scheduled">
+      <h2>2. Scheduled test — plain text (<code>SendPlainTextAsync</code>)</h2>
+      <div class="meta">
+        <strong>Subject (config):</strong> [DRILL] Security alert: possible unauthorized access to your account
+        · Source: <code>App:ScheduledTestEmail:Subject</code> / <code>PlainBody</code>
+      </div>
+      <pre class="sample">AUTOMATED DRILL — NOT A REAL SECURITY INCIDENT
+
+This message was sent by the SQL Accounting auto-emailing test job. The scenario below is sample text only (for layout, routing, and mail-client testing).
+
+--- Simulated notice ---
+
+Dear user,
+
+We have detected unusual activity that may indicate your account was accessed by someone else. Our logs show repeated failed sign-in attempts, followed by a successful login from an unrecognized device and location outside your usual patterns.
+
+If this activity was not you, your credentials may be compromised. Do not use links in this email.
+
+Recommended actions:
+1. Sign out of all active sessions using your organization's official account or password portal (type the address in your browser yourself).
+2. Change your password immediately and ensure multi-factor authentication is enabled, if your IT policy allows it.
+3. Contact your IT or security team and reference: AUTO-EMAILING-DRILL
+
+If you recognize this activity, you can disregard this notice after confirming with IT.
+
+--- End simulated notice ---
+
+You do not need to take any action for this drill unless your administrator asks you to. Questions: contact IT.
+
+— SQL Accounting scheduled email worker (test template)</pre>
+    </section>
+
+    <section id="otp">
+      <h2>3. SMTP test — plain text (<code>SendTestMessageAsync</code>)</h2>
+      <div class="meta">
+        <strong>Subject (code):</strong> Your OTP code
+        · OTP is random at send time; below is a placeholder.
+      </div>
+      <pre class="sample">Your OTP code is: 123456
+
+This is a manual SMTP test from the SQL Accounting Email Worker. Do not share this code; it is not tied to any login.</pre>
+    </section>
+  </main>
+</body>
+</html>
