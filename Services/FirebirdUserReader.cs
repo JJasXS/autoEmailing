@@ -1,3 +1,5 @@
+using System.Data.Common;
+using System.Globalization;
 using FirebirdSql.Data.FirebirdClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
@@ -116,6 +118,79 @@ public sealed class FirebirdUserReader
                 continue;
 
             list.Add(new EmailRecipient { Code = code, Name = name, Email = email });
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// Read-only: runs configured report SQL. Columns <c>DOCUMENT</c>, <c>DOC_DATE</c>, <c>AGE_DAYS</c>, <c>AMOUNT</c> are required (any case).
+    /// </summary>
+    public async Task<IReadOnlyList<DailyReportRow>> GetDailyReportRowsAsync(string sql, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(sql))
+            return Array.Empty<DailyReportRow>();
+
+        var cs = await ResolveConnectionStringAsync(cancellationToken).ConfigureAwait(false);
+        await using var conn = new FbConnection(cs);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        await using var cmd = new FbCommand(sql.Trim(), conn);
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        static int Ordinal(DbDataReader r, string name)
+        {
+            for (var i = 0; i < r.FieldCount; i++)
+            {
+                if (string.Equals(r.GetName(i), name, StringComparison.OrdinalIgnoreCase))
+                    return i;
+            }
+
+            throw new InvalidOperationException(
+                "Report SQL must return columns DOCUMENT, DOC_DATE, AGE_DAYS, and AMOUNT (see EmailFormats/previewSO.html).");
+        }
+
+        var list = new List<DailyReportRow>();
+        var ordDoc = -1;
+        var ordDate = -1;
+        var ordAge = -1;
+        var ordAmt = -1;
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (ordDoc < 0)
+            {
+                ordDoc = Ordinal(reader, "DOCUMENT");
+                ordDate = Ordinal(reader, "DOC_DATE");
+                ordAge = Ordinal(reader, "AGE_DAYS");
+                ordAmt = Ordinal(reader, "AMOUNT");
+            }
+
+            var doc = reader.GetValue(ordDoc)?.ToString()?.Trim() ?? "";
+            DateTime? docDate = null;
+            if (!reader.IsDBNull(ordDate))
+            {
+                var v = reader.GetValue(ordDate);
+                docDate = v switch
+                {
+                    DateTime dt => dt,
+                    DateOnly d => d.ToDateTime(TimeOnly.MinValue),
+                    _ => DateTime.TryParse(v?.ToString(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+                        ? parsed
+                        : null
+                };
+            }
+
+            var ageDays = reader.IsDBNull(ordAge)
+                ? 0
+                : Convert.ToInt32(reader.GetValue(ordAge), CultureInfo.InvariantCulture);
+            var amount = reader.IsDBNull(ordAmt)
+                ? 0m
+                : Convert.ToDecimal(reader.GetValue(ordAmt), CultureInfo.InvariantCulture);
+
+            list.Add(new DailyReportRow(doc, docDate, ageDays, amount));
         }
 
         return list;

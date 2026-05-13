@@ -1,0 +1,45 @@
+================================================================================
+OPEN THIS FILE IN NOTEPAD — fill in your values — then save AS ".env"
+(File → Save As → name:  .env   | type: All files (*.*) | folder: this project)
+================================================================================
+
+Lines starting with # are comments (optional). Remove # only where you need a setting.
+
+--- paste / edit below (start of .env content) ---
+
+TENANT_CODE=YOUR_TENANT_CODE_HERE
+
+App__Schedule__SendTime=08:00
+App__Schedule__TimeZone=Asia/Kuala_Lumpur
+
+# Weekly example (uncomment both if you use weekly):
+# App__Schedule__SendFrequency=Weekly
+# App__Schedule__SendDayOfWeek=Monday
+
+# If tenant API needs a key (optional):
+# TenantBootstrap__AwsApiKey=your-api-key
+
+# AWS (if you use keys on this PC — prefer profile or IAM role when possible):
+AWS_REGION=ap-southeast-1
+# AWS_ACCESS_KEY_ID=
+# AWS_SECRET_ACCESS_KEY=
+
+App__Smtp__SmtpHost=smtp.gmail.com
+App__Smtp__SmtpPort=587
+App__Smtp__EnableSsl=true
+App__Smtp__SmtpUser=
+App__Smtp__SmtpPassword=
+App__Smtp__FromEmail=
+App__Smtp__FromName=SQL Accounting Notifications
+
+--- end of .env content ---
+
+================================================================================
+After .env is saved in the project folder, in PowerShell run:
+  cd path\to\autoEmailing
+  dotnet run
+
+Quick tests:
+  dotnet run -- --test-smtp you@example.com
+  dotnet run -- --send-now
+================================================================================

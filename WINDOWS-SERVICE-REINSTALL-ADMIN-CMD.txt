@@ -1,0 +1,27 @@
+================================================================================
+Command Prompt — Run as administrator (no SET; edit paths if not C:\Services\autoEmailing)
+================================================================================
+
+sc stop "SQL Accounting Email Worker"
+timeout /t 4 /nobreak >nul
+sc delete "SQL Accounting Email Worker"
+timeout /t 2 /nobreak >nul
+
+if exist "C:\Services\autoEmailing" rmdir /s /q "C:\Services\autoEmailing"
+
+if not exist "C:\Services" mkdir "C:\Services"
+cd /d "C:\Services"
+git clone "https://github.com/JJasXS/autoEmailing.git" "autoEmailing"
+
+cd /d "C:\Services\autoEmailing"
+if not exist ".env" copy /y ".env.example" ".env"
+notepad .env
+
+dotnet publish -c Release -o "C:\Services\autoEmailing\publish"
+copy /y "C:\Services\autoEmailing\.env" "C:\Services\autoEmailing\publish\.env"
+
+sc create "SQL Accounting Email Worker" binPath= "C:\Services\autoEmailing\publish\SqlAccountingEmailWorker.exe" start= auto
+sc start "SQL Accounting Email Worker"
+sc query "SQL Accounting Email Worker"
+
+================================================================================

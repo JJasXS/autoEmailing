@@ -14,6 +14,8 @@ public sealed class Worker : BackgroundService
     private readonly ScheduleService _schedule;
     private readonly ScheduleOptions _scheduleOptions;
     private readonly ScheduledTestEmailOptions _scheduledTest;
+    private readonly DailyAttachmentReportOptions _dailyAttachmentReport;
+    private readonly DailyReportExcelPdfGenerator _reportAttachmentGenerator;
 
     public Worker(
         ILogger<Worker> logger,
@@ -21,6 +23,7 @@ public sealed class Worker : BackgroundService
         EmailSender emailSender,
         EmailLogService emailLog,
         ScheduleService schedule,
+        DailyReportExcelPdfGenerator reportAttachmentGenerator,
         IOptions<AppSettings> appOptions)
     {
         _logger = logger;
@@ -28,8 +31,10 @@ public sealed class Worker : BackgroundService
         _emailSender = emailSender;
         _emailLog = emailLog;
         _schedule = schedule;
+        _reportAttachmentGenerator = reportAttachmentGenerator;
         _scheduleOptions = appOptions.Value.Schedule;
         _scheduledTest = appOptions.Value.ScheduledTestEmail;
+        _dailyAttachmentReport = appOptions.Value.DailyAttachmentReport;
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
@@ -138,6 +143,24 @@ public sealed class Worker : BackgroundService
 
         _logger.LogInformation("Recipients found (after UDF filter): {Count}.", recipients.Count);
 
+        IReadOnlyList<EmailAttachment>? batchAttachments = null;
+        if (_dailyAttachmentReport.Enabled && !string.IsNullOrWhiteSpace(_dailyAttachmentReport.Sql))
+        {
+            try
+            {
+                var rows = await _firebird.GetDailyReportRowsAsync(_dailyAttachmentReport.Sql, cancellationToken)
+                    .ConfigureAwait(false);
+                batchAttachments = _reportAttachmentGenerator.BuildAttachments(rows, _dailyAttachmentReport, scheduleDate);
+                _logger.LogInformation(
+                    "Daily attachment report: built Excel + PDF ({RowCount} row(s)).",
+                    rows.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Daily attachment report failed; sending HTML body only (no attachments).");
+            }
+        }
+
         var sentCount = 0;
         var skippedDuplicateCount = 0;
 
@@ -164,7 +187,8 @@ public sealed class Worker : BackgroundService
 
             try
             {
-                await _emailSender.SendDailyNotificationAsync(r, scheduleDate, cancellationToken).ConfigureAwait(false);
+                await _emailSender.SendDailyNotificationAsync(r, scheduleDate, batchAttachments, cancellationToken)
+                    .ConfigureAwait(false);
                 _logger.LogInformation(
                     "Email sent successfully to {Email} (user {Code}, {Name}).",
                     r.Email, r.Code, r.Name);

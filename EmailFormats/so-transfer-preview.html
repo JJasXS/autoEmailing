@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SO Outstanding Transfer — download test</title>
+  <style>
+    body { font-family: Segoe UI, system-ui, sans-serif; margin: 2rem; max-width: 40rem; line-height: 1.5; color: #1a202c; }
+    h1 { font-size: 1.25rem; color: #1a365d; }
+    a { color: #2b6cb0; font-weight: 600; }
+    .box { margin-top: 1rem; padding: 1rem; background: #f7fafc; border-radius: 8px; border: 1px solid #cbd5e0; }
+    .btn {
+      display: inline-block;
+      min-width: 210px;
+      text-align: center;
+      text-decoration: none;
+      color: #fff;
+      background: #1a365d;
+      border: 1px solid #163050;
+      border-radius: 8px;
+      padding: 0.65rem 0.95rem;
+      margin: 0.35rem 0;
+      font-weight: 600;
+    }
+    .btn.secondary { background: #2b6cb0; border-color: #255e9a; }
+    code { background: #edf2f7; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>Sales Order Outstanding Transfer — Excel / PDF</h1>
+  <p>
+    Downloads are generated live from Firebird using the same logic as the worker
+    (<code>SL_SO</code>, <code>SL_SODTL</code>, <code>ST_XTRANS</code>, <code>SL_DO</code>, <code>SL_IV</code>, <code>SL_DN</code>).
+    Fix <code>.env</code> / tenant so the DB connection works before testing.
+  </p>
+  <div class="box">
+    <p><a class="btn" href="/so-transfer.xlsx">Download Excel (.xlsx)</a></p>
+    <p><a class="btn secondary" href="/so-transfer.pdf">Download PDF (.pdf)</a></p>
+    <p><a href="/previewSO.html">Open technical preview page</a></p>
+  </div>
+  <p style="font-size:0.85rem;color:#4a5563;">
+    Run: <code>dotnet run</code> (default test page on port 2086, if terminal is interactive).<br />
+    Optional explicit preview mode: <code>dotnet run -- --preview-so</code>; optional alternate port: <code>PREVIEW_SO_PORT=2086</code> (or another free port).<br />
+    Layout matches the ERP reference: a <strong>bold group row</strong> per SO (<code>SO-…</code> + company), then columns
+    Seq., Code, Description, U/Price, Delivy date, Orig Qty, O/Stding, and transfer Date / Doc No / Tfer Qty (extra transfers as sub-rows with the first seven columns blank).
+    Outstanding = <code>SL_SODTL.SQTY - SUM(ABS(ST_XTRANS.SQTY)) &lt;&gt; 0</code> for <code>FROMDOCTYPE='SO'</code>.
+    Line Seq. uses <code>ROW_NUMBER() OVER (PARTITION BY SO.DOCKEY ORDER BY DTL.DTLKEY)</code>; unit price from <code>SL_SODTL.UNITPRICE</code>.
+  </p>
+</body>
+</html>

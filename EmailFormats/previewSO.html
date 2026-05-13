@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>previewSO — Daily email outstanding (HTML + Excel + PDF)</title>
+  <style>
+    :root { --border: #c5ccd3; --muted: #4a5563; --bg: #f0f4f8; }
+    body { font-family: Segoe UI, system-ui, sans-serif; margin: 0; color: #1a202c; line-height: 1.45; background: var(--bg); }
+    header { background: #1a365d; color: #fff; padding: 1rem 1.25rem; }
+    header h1 { margin: 0 0 0.35rem; font-size: 1.2rem; font-weight: 600; }
+    header p { margin: 0; font-size: 0.875rem; opacity: 0.92; max-width: 56rem; }
+    .card { margin: 1rem 1.25rem; padding: 1rem 1.15rem; background: #fff; border: 1px solid var(--border); border-radius: 8px; max-width: 56rem; }
+    .card h2 { margin: 0 0 0.5rem; font-size: 1rem; color: #1a365d; }
+    .card pre { margin: 0.5rem 0 0; padding: 0.75rem; background: #f7fafc; border-radius: 6px; overflow-x: auto; font-size: 0.78rem; line-height: 1.35; }
+    .hint { margin: 0.75rem 1.25rem; padding: 0.65rem 0.85rem; background: #fff8e6; border: 1px solid #e6c200; border-radius: 6px; font-size: 0.8rem; max-width: 56rem; }
+    main { padding: 0 0 2rem; }
+    iframe { width: calc(100% - 2.5rem); margin: 0 1.25rem; min-height: 520px; border: 1px solid var(--border); border-radius: 8px; background: #fff; display: block; }
+    .links { margin: 0.75rem 1.25rem; font-size: 0.85rem; }
+    .links a { color: #2b6cb0; }
+    code { font-size: 0.85em; background: #edf2f7; padding: 0.1em 0.35em; border-radius: 4px; }
+    table.fmt { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-top: 0.5rem; }
+    table.fmt th, table.fmt td { border: 1px solid var(--border); padding: 0.45rem 0.55rem; text-align: left; }
+    table.fmt th { background: #edf2f7; }
+    table.fmt td.num, table.fmt th.num { text-align: right; }
+    .muted { color: var(--muted); font-size: 0.82rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>previewSO — attachment format (Excel + PDF)</h1>
+    <p>
+      The worker sends the usual HTML intro, plus two attachments when <code>App:DailyAttachmentReport:Enabled</code> is <strong>true</strong>
+      and <code>Sql</code> is set: <code>Outstanding_yyyy-MM-dd.xlsx</code> and <code>Outstanding_yyyy-MM-dd.pdf</code>.
+      The same query runs <strong>once per batch</strong>; every recipient gets the same files (filenames include the schedule date only).
+    </p>
+  </header>
+
+  <p class="hint">
+    <strong>Local HTTP preview (port 2086):</strong> from the project or publish folder run
+    <code>dotnet run -- --preview-so</code> — then open <code>http://localhost/</code> (default document is this file).
+    Default is <code>2086</code>. Optional override:
+    <code>set PREVIEW_SO_PORT=2086</code> (or another port) then run the same command.
+    <br /><strong>SO transfer report (Excel/PDF):</strong> <a href="/so-transfer">/so-transfer</a> (same server).
+  </p>
+
+  <p class="hint">
+    <strong>Install (one time, on the dev/build machine):</strong> already referenced in the project —
+    <code>ClosedXML</code> (Excel) and <code>QuestPDF</code> (PDF). Restore with <code>dotnet restore</code>.
+    QuestPDF uses the <strong>Community</strong> license flag in <code>Program.cs</code>; review
+    <a href="https://www.questpdf.com/pricing.html" target="_blank" rel="noopener">QuestPDF licensing</a> for your organization.
+  </p>
+
+  <div class="card">
+    <h2>1) Required SQL column aliases</h2>
+    <p class="muted">Your Firebird <code>SELECT</code> must expose these four columns (aliases are matched case-insensitively):</p>
+    <table class="fmt" aria-label="Column contract">
+      <thead>
+        <tr>
+          <th>Alias</th>
+          <th>Meaning</th>
+          <th>Suggested type</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code>DOCUMENT</code></td><td>Invoice / document reference</td><td><code>VARCHAR</code></td></tr>
+        <tr><td><code>DOC_DATE</code></td><td>Document or due date</td><td><code>DATE</code> or <code>TIMESTAMP</code></td></tr>
+        <tr><td><code>AGE_DAYS</code></td><td>Age in whole days</td><td><code>INTEGER</code></td></tr>
+        <tr><td><code>AMOUNT</code></td><td>Outstanding amount</td><td><code>NUMERIC</code></td></tr>
+      </tbody>
+    </table>
+    <p class="muted" style="margin-top:0.75rem">Replace the sample <code>Sql</code> in <code>appsettings.json</code> with your real outstanding query; keep the four aliases on the outermost select.</p>
+  </div>
+
+  <div class="card">
+    <h2>2) Sample Firebird SQL (demo rows — works on any database)</h2>
+    <pre>SELECT CAST('INV-DEMO-1' AS VARCHAR(120)) AS DOCUMENT,
+       CAST(DATE '2025-01-10' AS DATE) AS DOC_DATE,
+       CAST(12 AS INTEGER) AS AGE_DAYS,
+       CAST(100.00 AS NUMERIC(18,4)) AS AMOUNT
+FROM RDB$DATABASE
+UNION ALL
+SELECT CAST('INV-DEMO-2' AS VARCHAR(120)) AS DOCUMENT,
+       CAST(DATE '2025-02-01' AS DATE) AS DOC_DATE,
+       CAST(5 AS INTEGER) AS AGE_DAYS,
+       CAST(250.50 AS NUMERIC(18,4)) AS AMOUNT
+FROM RDB$DATABASE</pre>
+  </div>
+
+  <div class="card">
+    <h2>3) Visual layout (Excel and PDF match this grid)</h2>
+    <p class="muted">Column order and labels align with <code>EmailFormats/outstanding-report.template.html</code> (email table), not the short daily HTML body.</p>
+    <table class="fmt">
+      <thead>
+        <tr>
+          <th>Document</th>
+          <th>Date</th>
+          <th class="num">Age (days)</th>
+          <th class="num">Outstanding (MYR)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>INV-DEMO-1</td><td>2025-01-10</td><td class="num">12</td><td class="num">100.00</td></tr>
+        <tr><td>INV-DEMO-2</td><td>2025-02-01</td><td class="num">5</td><td class="num">250.50</td></tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="3" style="text-align:right">Total MYR</th>
+          <th class="num">350.50</th>
+        </tr>
+      </tfoot>
+    </table>
+    <p class="muted" style="margin-top:0.5rem"><code>CurrencyLabel</code> in config labels the amount column (default <code>MYR</code>).</p>
+  </div>
+
+  <div class="card">
+    <h2>4) Turn attachments on</h2>
+    <p>In <code>appsettings.json</code> or environment overrides, set:</p>
+    <pre>App__DailyAttachmentReport__Enabled=true</pre>
+    <p class="muted">Optional: <code>App__DailyAttachmentReport__ReportTitle</code>, <code>App__DailyAttachmentReport__CompanyName</code>, <code>App__DailyAttachmentReport__CurrencyLabel</code>, <code>App__DailyAttachmentReport__Sql</code> (multi-line SQL is easiest in appsettings; escape quotes in JSON).</p>
+  </div>
+
+  <p class="hint">
+    If the frame below is blank, open <code>outstanding-report.template.html</code> from the same folder.
+  </p>
+  <main>
+    <iframe title="Outstanding report email template" src="outstanding-report.template.html"></iframe>
+    <p class="links">
+      Open: <a href="outstanding-report.template.html" target="_blank" rel="noopener">outstanding-report.template.html</a>
+      · Tokens for a separate HTML email path: <code>{{ReportTitle}}</code>, <code>{{CompanyName}}</code>, <code>{{ReportAsOf}}</code>,
+      <code>{{OutstandingRows}}</code>, <code>{{Currency}}</code>, <code>{{GrandTotal}}</code>
+    </p>
+  </main>
+</body>
+</html>

@@ -1,10 +1,15 @@
 using System.Globalization;
 using DotNetEnv;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting.WindowsServices;
+using QuestPDF.Infrastructure;
 using Microsoft.Extensions.Options;
 using SqlAccountingEmailWorker;
 using SqlAccountingEmailWorker.Models;
 using SqlAccountingEmailWorker.Services;
+
+// QuestPDF: community license (see https://www.questpdf.com/pricing.html).
+QuestPDF.Settings.License = LicenseType.Community;
 
 // Use executable directory so appsettings.json and local logs work when running as a Windows Service.
 var contentRoot = AppContext.BaseDirectory;
@@ -20,30 +25,34 @@ foreach (var envPath in new[]
         Env.Load(envPath);
 }
 
+var previewByArg = args.Contains("--preview-so", StringComparer.OrdinalIgnoreCase);
+var previewByDefaultInteractive = args.Length == 0 && Environment.UserInteractive && !WindowsServiceHelpers.IsWindowsService();
+
+if (previewByArg || previewByDefaultInteractive)
+{
+    var previewBuilder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+    {
+        ContentRootPath = contentRoot,
+        Args = args
+    });
+    WorkerHostConfigurator.AddCoreServices(previewBuilder);
+    previewBuilder.Logging.ClearProviders();
+    previewBuilder.Logging.AddConsole();
+    using var previewHost = previewBuilder.Build();
+    await previewHost.Services.GetRequiredService<DbInitializer>().InitializeAsync(CancellationToken.None)
+        .ConfigureAwait(false);
+    PreviewSoHost.Run(contentRoot, previewHost.Services);
+    return;
+}
+
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
 {
     ContentRootPath = contentRoot,
     Args = args
 });
 
-builder.Services.Configure<AppSettings>(builder.Configuration.GetSection(AppSettings.SectionName));
-builder.Services.AddWindowsService(options => options.ServiceName = "SQL Accounting Email Worker");
-
-builder.Services.AddSingleton<AwsSecretsReader>();
-builder.Services.AddHttpClient(TenantFirebirdConnectionResolver.HttpClientName, client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(60);
-});
-builder.Services.AddSingleton<TenantFirebirdConnectionResolver>();
-builder.Services.AddSingleton<TenantBootstrapService>();
-builder.Services.AddSingleton<ScheduleService>();
-builder.Services.AddSingleton<FirebirdUserReader>();
-builder.Services.AddSingleton<EmailSender>();
-builder.Services.AddSingleton<EmailLogService>();
-builder.Services.AddSingleton<DbInitializer>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<DbInitializer>());
-builder.Services.AddSingleton<Worker>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<Worker>());
+WorkerHostConfigurator.AddCoreServices(builder);
+WorkerHostConfigurator.AddWorkerHostedServices(builder);
 
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();

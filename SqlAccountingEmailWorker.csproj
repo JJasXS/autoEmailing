@@ -10,16 +10,20 @@
   <ItemGroup>
     <None Update=".env.example" CopyToOutputDirectory="PreserveNewest" />
     <None Update=".env" CopyToOutputDirectory="PreserveNewest" Condition="Exists('.env')" />
-    <None Include="EmailFormats\preview.html" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="EmailFormats\previewSO.html" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="EmailFormats\so-transfer-preview.html" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="EmailFormats\outstanding-report.template.html" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.4.20" />
+    <PackageReference Include="ClosedXML" Version="0.105.0" />
     <PackageReference Include="DotNetEnv" Version="3.2.0" />
     <PackageReference Include="FirebirdSql.Data.FirebirdClient" Version="10.3.4" />
     <PackageReference Include="MailKit" Version="4.16.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.7" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.7" />
+    <PackageReference Include="QuestPDF" Version="2025.7.4" />
   </ItemGroup>
 </Project>

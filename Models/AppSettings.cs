@@ -11,6 +11,24 @@ public sealed class AppSettings
 
     /// <summary>Optional one-off / scheduled-tick plain-text test (see Worker and <c>--wait-scheduled-test</c>).</summary>
     public ScheduledTestEmailOptions ScheduledTestEmail { get; set; } = new();
+
+    /// <summary>Optional Excel + PDF attachments for the daily batch (same data for all recipients).</summary>
+    public DailyAttachmentReportOptions DailyAttachmentReport { get; set; } = new();
+}
+
+/// <summary>
+/// Firebird SQL must return columns <c>DOCUMENT</c>, <c>DOC_DATE</c>, <c>AGE_DAYS</c>, <c>AMOUNT</c> (see <c>EmailFormats/previewSO.html</c>).
+/// </summary>
+public sealed class DailyAttachmentReportOptions
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>Full SELECT; column aliases must match the documented names (case-insensitive).</summary>
+    public string Sql { get; set; } = "";
+
+    public string ReportTitle { get; set; } = "Outstanding summary";
+    public string CompanyName { get; set; } = "";
+    public string CurrencyLabel { get; set; } = "MYR";
 }
 
 public sealed class FirebirdOptions

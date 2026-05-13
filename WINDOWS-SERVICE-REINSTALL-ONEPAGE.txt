@@ -1,0 +1,65 @@
+================================================================================
+ONE PAGE: Stop service → remove folder → clone → publish → register → start
+Run PowerShell AS ADMINISTRATOR. Edit the three variables at the top first.
+================================================================================
+
+# --- set these once ---
+$InstallRoot = "C:\Services"                    # parent folder (must exist or mkdir)
+$AppFolder    = "autoEmailing"                 # folder name under InstallRoot
+$GitUrl       = "https://github.com/JJasXS/autoEmailing.git"
+$ServiceName  = "SQL Accounting Email Worker"  # must match Program.cs
+$FullPath     = Join-Path $InstallRoot $AppFolder
+
+# --- 0) Optional: backup secrets before delete (edit destination) ---
+# Copy-Item (Join-Path $FullPath ".env") "D:\Backup\autoEmailing.env" -ErrorAction SilentlyContinue
+
+# --- 1) stop service (ignore error if not installed) ---
+sc.exe stop "$ServiceName"
+Start-Sleep -Seconds 4
+sc.exe query "$ServiceName"
+
+# --- 2) remove Windows service registration (ignore error if already gone) ---
+sc.exe delete "$ServiceName"
+Start-Sleep -Seconds 2
+
+# --- 3) remove app directory ---
+if (Test-Path $FullPath) {
+  Remove-Item -LiteralPath $FullPath -Recurse -Force
+}
+
+# --- 4) ensure parent exists ---
+New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
+
+# --- 5) clone fresh ---
+Set-Location $InstallRoot
+git clone $GitUrl $AppFolder
+
+# --- 6) create .env (Notepad: fill TENANT_CODE, SMTP, AWS, schedule) ---
+Set-Location $FullPath
+notepad .env
+# If .env does not exist yet:  Copy-Item .env.example .env  ;  notepad .env
+
+# --- 7) publish release (output goes to .\publish) ---
+dotnet publish -c Release -o "$FullPath\publish"
+
+# --- 8) copy .env next to published exe (publish copies it from project if present;
+#    if you edited .env after publish, run this line again) ---
+Copy-Item -Force (Join-Path $FullPath ".env") (Join-Path $FullPath "publish\.env")
+
+# --- 9) register service (binPath: NO space after =, path in quotes) ---
+$Exe = Join-Path $FullPath "publish\SqlAccountingEmailWorker.exe"
+sc.exe create "$ServiceName" binPath= "$Exe" start= auto
+
+# --- 10) start service ---
+sc.exe start "$ServiceName"
+sc.exe query "$ServiceName"
+
+================================================================================
+Notes
+- Install .NET 10 SDK on the machine before dotnet publish.
+- If "git" is missing: install Git for Windows, then re-open admin PowerShell.
+- If sc delete says service is marked for deletion: reboot, then continue from step 3.
+- Logs: check Event Viewer → Windows Logs → Application, or run from console once:
+    cd "C:\Services\autoEmailing\publish"
+    .\SqlAccountingEmailWorker.exe
+================================================================================

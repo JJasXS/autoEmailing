@@ -32,6 +32,7 @@ public sealed class EmailSender
     public async Task SendDailyNotificationAsync(
         EmailRecipient recipient,
         DateOnly scheduleDate,
+        IReadOnlyList<EmailAttachment>? attachments,
         CancellationToken cancellationToken)
     {
         var smtp = await BuildEffectiveSmtpAsync(cancellationToken).ConfigureAwait(false);
@@ -41,8 +42,8 @@ public sealed class EmailSender
         message.To.Add(MailboxAddress.Parse(recipient.Email));
         message.Subject = "Daily SQL Accounting Notification";
 
-        var body = BuildHtmlBody(recipient, scheduleDate);
-        message.Body = new TextPart("html") { Text = body };
+        var body = BuildHtmlBody(recipient, scheduleDate, attachments is { Count: > 0 });
+        message.Body = BuildMessageBody(body, attachments);
 
         using var client = CreateSmtpClient();
         var secure = ResolveSecureSocketOption(smtp.EnableSsl, smtp.Port);
@@ -216,17 +217,21 @@ public sealed class EmailSender
         return SecureSocketOptions.StartTlsWhenAvailable;
     }
 
-    private static string BuildHtmlBody(EmailRecipient recipient, DateOnly scheduleDate)
+    private static string BuildHtmlBody(EmailRecipient recipient, DateOnly scheduleDate, bool hasAttachments)
     {
-        // Layout preview (open in browser): EmailFormats/preview.html — section "Daily batch".
+        // Outstanding report layout: EmailFormats/outstanding-report.template.html + OutstandingReportEmailTemplate (separate from this daily stub).
         var safeName = System.Net.WebUtility.HtmlEncode(recipient.Name);
         var safeCode = System.Net.WebUtility.HtmlEncode(recipient.Code);
         var dateStr = scheduleDate.ToString("yyyy-MM-dd", null);
+        var attachNote = hasAttachments
+            ? "<p><strong>Attachments:</strong> Excel (<code>.xlsx</code>) and PDF (<code>.pdf</code>) outstanding summary for the same date.</p>"
+            : "";
 
         return $"""
             <html><body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;">
             <p>Hello {safeName},</p>
             <p>This is your scheduled <strong>Daily SQL Accounting Notification</strong>.</p>
+            {attachNote}
             <ul>
               <li><strong>User code:</strong> {safeCode}</li>
               <li><strong>Date ({dateStr}):</strong> calendar date in your configured schedule time zone</li>
@@ -235,5 +240,31 @@ public sealed class EmailSender
             <p style="color:#666;font-size:12px;">Message generated automatically. Please do not reply.</p>
             </body></html>
             """;
+    }
+
+    private static MimeEntity BuildMessageBody(string htmlBody, IReadOnlyList<EmailAttachment>? attachments)
+    {
+        if (attachments is not { Count: > 0 })
+            return new TextPart("html") { Text = htmlBody };
+
+        var mixed = new Multipart("mixed");
+        mixed.Add(new TextPart("html") { Text = htmlBody });
+
+        foreach (var a in attachments)
+        {
+            var slash = a.ContentType.IndexOf('/');
+            var major = slash > 0 ? a.ContentType[..slash] : "application";
+            var minor = slash > 0 && slash + 1 < a.ContentType.Length ? a.ContentType[(slash + 1)..] : "octet-stream";
+            var part = new MimePart(major, minor)
+            {
+                Content = new MimeContent(new MemoryStream(a.Content, writable: false)),
+                ContentDisposition = new ContentDisposition(ContentDisposition.Attachment),
+                ContentTransferEncoding = ContentEncoding.Base64,
+                FileName = a.FileName
+            };
+            mixed.Add(part);
+        }
+
+        return mixed;
     }
 }
