@@ -12,6 +12,7 @@ public sealed class Worker : BackgroundService
     private readonly EmailSender _emailSender;
     private readonly EmailLogService _emailLog;
     private readonly ScheduleService _schedule;
+    private readonly ScheduleOptions _scheduleOptions;
     private readonly ScheduledTestEmailOptions _scheduledTest;
 
     public Worker(
@@ -27,6 +28,7 @@ public sealed class Worker : BackgroundService
         _emailSender = emailSender;
         _emailLog = emailLog;
         _schedule = schedule;
+        _scheduleOptions = appOptions.Value.Schedule;
         _scheduledTest = appOptions.Value.ScheduledTestEmail;
     }
 
@@ -34,6 +36,20 @@ public sealed class Worker : BackgroundService
     {
         _logger.LogInformation("SQL Accounting email worker service started.");
         _logger.LogInformation("Send history file: {Path}", _emailLog.HistoryFilePath);
+
+        var freq = (_scheduleOptions.SendFrequency ?? "Daily").Trim();
+        if (_schedule.IsWeeklySchedule())
+            _logger.LogInformation(
+                "Schedule mode: Weekly on {Day} at {SendTime} ({TzId}).",
+                _scheduleOptions.SendDayOfWeek,
+                _schedule.GetSendTimeOfDay().ToString("HH:mm:ss", CultureInfo.InvariantCulture),
+                _scheduleOptions.TimeZone);
+        else
+            _logger.LogInformation(
+                "Schedule mode: Daily at {SendTime} ({TzId}). SendFrequency={Freq}.",
+                _schedule.GetSendTimeOfDay().ToString("HH:mm:ss", CultureInfo.InvariantCulture),
+                _scheduleOptions.TimeZone,
+                string.IsNullOrEmpty(freq) ? "Daily" : freq);
 
         var next = _schedule.GetNextSendUtc(DateTimeOffset.UtcNow);
         var tz = _schedule.GetTimeZone();

@@ -32,14 +32,31 @@ public sealed class ScheduleService
         return t;
     }
 
-    /// <summary>Next instant when the daily job should run, in UTC.</summary>
+    public bool IsWeeklySchedule()
+    {
+        var f = (_options.SendFrequency ?? "").Trim();
+        return f.Equals("Weekly", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Next instant when the job should run, in UTC (daily or weekly per <see cref="ScheduleOptions"/>).</summary>
     public DateTimeOffset GetNextSendUtc(DateTimeOffset utcNow)
     {
         var tz = GetTimeZone();
         var sendTime = GetSendTimeOfDay();
         var localNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow.UtcDateTime, tz);
-        var todaySend = localNow.Date.Add(sendTime.ToTimeSpan());
-        var localNext = localNow <= todaySend ? todaySend : todaySend.AddDays(1);
+
+        DateTime localNext;
+        if (IsWeeklySchedule())
+        {
+            var dow = ParseSendDayOfWeek();
+            localNext = GetNextWeeklySendLocal(localNow, sendTime, dow);
+        }
+        else
+        {
+            var todaySend = localNow.Date.Add(sendTime.ToTimeSpan());
+            localNext = localNow <= todaySend ? todaySend : todaySend.AddDays(1);
+        }
+
         var utcNext = TimeZoneInfo.ConvertTimeToUtc(localNext, tz);
         return new DateTimeOffset(utcNext, TimeSpan.Zero);
     }
@@ -50,5 +67,32 @@ public sealed class ScheduleService
         var tz = GetTimeZone();
         var local = TimeZoneInfo.ConvertTimeFromUtc(utcNow.UtcDateTime, tz);
         return DateOnly.FromDateTime(local.Date);
+    }
+
+    private static DateTime GetNextWeeklySendLocal(DateTime localNow, TimeOnly sendTime, DayOfWeek targetDow)
+    {
+        var timeSpan = sendTime.ToTimeSpan();
+        for (var i = 0; i < 14; i++)
+        {
+            var day = localNow.Date.AddDays(i);
+            var localInstant = day + timeSpan;
+            if (day.DayOfWeek == targetDow && localInstant > localNow)
+                return localInstant;
+        }
+
+        throw new InvalidOperationException("Could not resolve next weekly send time (internal).");
+    }
+
+    private DayOfWeek ParseSendDayOfWeek()
+    {
+        var s = (_options.SendDayOfWeek ?? "").Trim();
+        if (s.Length == 0)
+            return DayOfWeek.Monday;
+
+        if (Enum.TryParse(s, true, out DayOfWeek dow) && Enum.IsDefined(dow))
+            return dow;
+
+        throw new InvalidOperationException(
+            $"Schedule:SendDayOfWeek '{_options.SendDayOfWeek}' is invalid. Use an English day name (e.g. Monday).");
     }
 }

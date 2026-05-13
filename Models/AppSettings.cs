@@ -52,6 +52,12 @@ public sealed class ScheduleOptions
 
     /// <summary>IANA time zone id (e.g. Asia/Kuala_Lumpur).</summary>
     public string TimeZone { get; set; } = "Asia/Kuala_Lumpur";
+
+    /// <summary><c>Daily</c> (default) or <c>Weekly</c> (use <see cref="SendDayOfWeek"/>).</summary>
+    public string SendFrequency { get; set; } = "Daily";
+
+    /// <summary>When <see cref="SendFrequency"/> is <c>Weekly</c>, day name (e.g. Monday). Ignored for daily.</summary>
+    public string SendDayOfWeek { get; set; } = "Monday";
 }
 
 public sealed class LocalLogOptions
