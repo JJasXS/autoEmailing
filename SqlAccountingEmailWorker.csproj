@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-SqlAccountingEmailWorker-5189b1d0-1732-4f95-bd04-b152311a9cff</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Update=".env.example" CopyToOutputDirectory="PreserveNewest" />
+    <None Update=".env" CopyToOutputDirectory="PreserveNewest" Condition="Exists('.env')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.4.20" />
+    <PackageReference Include="DotNetEnv" Version="3.2.0" />
+    <PackageReference Include="FirebirdSql.Data.FirebirdClient" Version="10.3.4" />
+    <PackageReference Include="MailKit" Version="4.16.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.7" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.7" />
+  </ItemGroup>
+</Project>
