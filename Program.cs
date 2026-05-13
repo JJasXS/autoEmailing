@@ -76,6 +76,53 @@ if (testSmtpIdx >= 0)
     return;
 }
 
+// Immediate SY_USER + UDF_AEMAIL test using ScheduledTestEmail subject/body (no schedule wait, no send history).
+if (args.Contains("--sy-user-test-email", StringComparer.OrdinalIgnoreCase))
+{
+    using var host = builder.Build();
+    var te = host.Services.GetRequiredService<IOptions<AppSettings>>().Value.ScheduledTestEmail;
+    if (string.IsNullOrWhiteSpace(te.PlainBody))
+    {
+        Console.Error.WriteLine(
+            "Set App:ScheduledTestEmail:PlainBody (e.g. App__ScheduledTestEmail__PlainBody in .env). Subject comes from App:ScheduledTestEmail:Subject.");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    await host.Services.GetRequiredService<DbInitializer>().InitializeAsync(CancellationToken.None).ConfigureAwait(false);
+    var emailSender = host.Services.GetRequiredService<EmailSender>();
+    var firebird = host.Services.GetRequiredService<FirebirdUserReader>();
+    var subject = string.IsNullOrWhiteSpace(te.Subject) ? "Auto emailing test" : te.Subject.Trim();
+
+    if (!string.IsNullOrWhiteSpace(te.To))
+    {
+        Console.WriteLine($"ScheduledTestEmail:To is set — sending only to {te.To} (SY_USER list not used).");
+        await emailSender.SendPlainTextAsync(te.To, subject, te.PlainBody, CancellationToken.None).ConfigureAwait(false);
+        Console.WriteLine("Done.");
+        return;
+    }
+
+    var recipients = await firebird.GetRecipientsAsync(CancellationToken.None).ConfigureAwait(false);
+    if (recipients.Count == 0)
+    {
+        Console.Error.WriteLine("No recipients: SY_USER needs non-empty EMAIL and truthy UDF_AEMAIL.");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    var sent = 0;
+    foreach (var r in recipients)
+    {
+        if (string.IsNullOrWhiteSpace(r.Code))
+            continue;
+        await emailSender.SendPlainTextAsync(r.Email, subject, te.PlainBody, CancellationToken.None).ConfigureAwait(false);
+        sent++;
+    }
+
+    Console.WriteLine($"SY_USER test: sent to {sent} recipient(s) (EMAIL + UDF_AEMAIL).");
+    return;
+}
+
 if (args.Contains("--wait-scheduled-test", StringComparer.OrdinalIgnoreCase))
 {
     using var host = builder.Build();

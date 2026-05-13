@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Options;
 using SqlAccountingEmailWorker.Models;
 
@@ -27,8 +28,14 @@ public sealed class ScheduleService
 
     public TimeOnly GetSendTimeOfDay()
     {
-        if (!TimeOnly.TryParse(_options.SendTime, out var t))
-            throw new InvalidOperationException($"Schedule:SendTime '{_options.SendTime}' is invalid. Use HH:mm or H:mm.");
+        var raw = (_options.SendTime ?? "").Trim();
+        // Common mistake: 11.03 instead of 11:03 (dot as separator).
+        if (raw.Contains('.', StringComparison.Ordinal) && !raw.Contains(':', StringComparison.Ordinal))
+            raw = raw.Replace('.', ':');
+
+        if (!TimeOnly.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var t))
+            throw new InvalidOperationException(
+                $"Schedule:SendTime '{_options.SendTime}' is invalid. Use HH:mm (colon), e.g. 11:03 — not 11.03.");
         return t;
     }
 

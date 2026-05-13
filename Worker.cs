@@ -138,6 +138,9 @@ public sealed class Worker : BackgroundService
 
         _logger.LogInformation("Recipients found (after UDF filter): {Count}.", recipients.Count);
 
+        var sentCount = 0;
+        var skippedDuplicateCount = 0;
+
         foreach (var r in recipients)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -148,8 +151,11 @@ public sealed class Worker : BackgroundService
                 continue;
             }
 
-            if (await _emailLog.WasAlreadySentAsync(r.Code, scheduleDate, cancellationToken).ConfigureAwait(false))
+            // Manual --send-now ignores send history so you can re-test the same day.
+            if (!sendNow
+                && await _emailLog.WasAlreadySentAsync(r.Code, scheduleDate, cancellationToken).ConfigureAwait(false))
             {
+                skippedDuplicateCount++;
                 _logger.LogInformation(
                     "Skipping {Code} ({Email}): already sent successfully for {ScheduleDate}.",
                     r.Code, r.Email, scheduleDate);
@@ -163,6 +169,7 @@ public sealed class Worker : BackgroundService
                     "Email sent successfully to {Email} (user {Code}, {Name}).",
                     r.Email, r.Code, r.Name);
                 await _emailLog.RecordSuccessAsync(r.Code, scheduleDate, r.Email, cancellationToken).ConfigureAwait(false);
+                sentCount++;
             }
             catch (Exception ex)
             {
@@ -175,7 +182,12 @@ public sealed class Worker : BackgroundService
             }
         }
 
-        _logger.LogInformation("Email batch completed.");
+        _logger.LogInformation(
+            "Email batch completed. Sent this run: {Sent}. Skipped (already in history for {ScheduleDate}): {SkippedDup}.{SendNowHint}",
+            sentCount,
+            scheduleDate,
+            skippedDuplicateCount,
+            sendNow ? " Manual run does not skip duplicates." : " Use --send-now to force another send today, or remove the entry from the send history file.");
     }
 
     private async Task SendScheduledTestEmailsAsync(CancellationToken cancellationToken)
