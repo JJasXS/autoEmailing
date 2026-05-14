@@ -57,6 +57,7 @@ public sealed class SoTransferOutstandingReportService
             ORDER BY so.DOCDATE, so.DOCNO, dtl.DTLKEY
             """;
 
+        // TRANS_DELIVERYDATE: IV/DN from detail tables. SL_DODTL often has no DELIVERYDATE — use NULL for DO; export falls back to SL_SODTL.DELIVERYDATE.
         const string transSql = """
             SELECT
               x.FROMDOCKEY,
@@ -74,11 +75,19 @@ public sealed class SoTransferOutstandingReportService
                 WHEN 'IV' THEN iv.DOCDATE
                 WHEN 'DN' THEN dn.DOCDATE
                 ELSE NULL
-              END AS TRANS_DOCDATE
+              END AS TRANS_DOCDATE,
+              CASE x.TODOCTYPE
+                WHEN 'DO' THEN CAST(NULL AS DATE)
+                WHEN 'IV' THEN SL_IVDTL.DELIVERYDATE
+                WHEN 'DN' THEN SL_DNDTL.DELIVERYDATE
+                ELSE NULL
+              END AS TRANS_DELIVERYDATE
             FROM ST_XTRANS x
             LEFT JOIN SL_DO do ON x.TODOCTYPE = 'DO' AND x.TODOCKEY = do.DOCKEY
             LEFT JOIN SL_IV iv ON x.TODOCTYPE = 'IV' AND x.TODOCKEY = iv.DOCKEY
             LEFT JOIN SL_DN dn ON x.TODOCTYPE = 'DN' AND x.TODOCKEY = dn.DOCKEY
+            LEFT JOIN SL_IVDTL ON x.TODOCTYPE = 'IV' AND x.TODOCKEY = SL_IVDTL.DOCKEY AND x.TODTLKEY = SL_IVDTL.DTLKEY
+            LEFT JOIN SL_DNDTL ON x.TODOCTYPE = 'DN' AND x.TODOCKEY = SL_DNDTL.DOCKEY AND x.TODTLKEY = SL_DNDTL.DTLKEY
             WHERE x.FROMDOCTYPE = 'SO'
               AND EXISTS (
                 SELECT 1
@@ -166,6 +175,7 @@ public sealed class SoTransferOutstandingReportService
                     ToDocType = toType,
                     TransferDocNo = rd["TRANS_DOCNO"]?.ToString()?.Trim() ?? "",
                     TransferDocDate = ReadDate(rd, "TRANS_DOCDATE"),
+                    TransferDeliveryDate = ReadDate(rd, "TRANS_DELIVERYDATE"),
                     TransferQty = ToDecimal(rd["LINE_QTY"])
                 });
             }

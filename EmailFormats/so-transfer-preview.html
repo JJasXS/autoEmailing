@@ -43,7 +43,7 @@
     Optional explicit preview mode: <code>dotnet run -- --preview-so</code>; optional alternate port: <code>PREVIEW_SO_PORT=2086</code> (or another free port).<br />
     If you open the preview using the EC2 public DNS or IP and get <strong>400 Invalid Hostname</strong>, set <code>PREVIEW_SO_ANY_HOST=1</code> in <code>.env</code> and on Windows run once (elevated): <code>netsh http add urlacl url=http://+:2086/ user=Everyone</code> (adjust port if needed).<br />
     Layout matches the ERP reference: a <strong>bold group row</strong> per SO (<code>SO-…</code> + company), then columns
-    Seq., Code, Description, U/Price, Delivy date, Orig Qty, O/Stding, and transfer Date / Doc No / Tfer Qty (extra transfers as sub-rows with the first seven columns blank).
+    SO Doc Date, Code, Description, Ext. No, Orig Qty, Tfer Qty, <strong>Transfer doc date</strong> (target <code>DOCDATE</code>), Doc No, O/Stding. Transfer sub-rows indent under the line.<br />
     Outstanding = <code>SL_SODTL.SQTY - SUM(ABS(ST_XTRANS.SQTY)) &lt;&gt; 0</code> for <code>FROMDOCTYPE='SO'</code>.
     Line Seq. uses <code>ROW_NUMBER() OVER (PARTITION BY SO.DOCKEY ORDER BY DTL.DTLKEY)</code>; unit price from <code>SL_SODTL.UNITPRICE</code>.
   </p>

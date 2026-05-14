@@ -67,14 +67,12 @@ public sealed class Worker : BackgroundService
             const string lf = "yyyy-MM-dd HH:mm:ss";
             var sendTimeStr = _schedule.GetSendTimeOfDay().ToString("HH:mm", CultureInfo.InvariantCulture);
             _logger.LogInformation(
-                "Next batch when clock reaches {SendTime} in {TzId}: now {NowLocal} → next {NextLocal} (~{Delay}). " +
-                "If next is tomorrow, today's {SendTime} has already passed in that zone (next wall-clock hit, not a 'daily' calendar rule).",
+                "Next send when local clock reaches {SendTime} in {TzId}: now {NowLocal} → next {NextLocal} (~{Delay}).",
                 sendTimeStr,
                 tz.Id,
                 nowLocal.ToString(lf, CultureInfo.InvariantCulture),
                 nextLocal.ToString(lf, CultureInfo.InvariantCulture),
-                delay,
-                sendTimeStr);
+                delay);
 
             try
             {
@@ -122,7 +120,8 @@ public sealed class Worker : BackgroundService
             await SendScheduledTestEmailsAsync(cancellationToken).ConfigureAwait(false);
             if (_scheduledTest.SkipDailyBatch)
             {
-                _logger.LogInformation("ScheduledTestEmail:SkipDailyBatch is true — skipping Firebird batch for this tick.");
+                _logger.LogInformation(
+                    "ScheduledTestEmail:SkipDailyBatch is true — skipping main scheduled send (SO / attachments) for this tick.");
                 return;
             }
         }
@@ -164,8 +163,8 @@ public sealed class Worker : BackgroundService
             {
                 var blocks = await _soTransferOutstandingReport.LoadReportAsync(cancellationToken).ConfigureAwait(false);
                 var stamp = scheduleDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-                var xlsx = _soTransferOutstandingExport.BuildExcel(blocks);
-                var pdf = _soTransferOutstandingExport.BuildPdf(blocks);
+                var xlsx = _soTransferOutstandingExport.BuildExcel(blocks, scheduleDate);
+                var pdf = _soTransferOutstandingExport.BuildPdf(blocks, scheduleDate);
                 batchAttachments.Add(new EmailAttachment(
                     $"SO-transfer-outstanding_{stamp}.xlsx",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -186,6 +185,21 @@ public sealed class Worker : BackgroundService
 
         var batchAttachmentsFinal = batchAttachments.Count > 0 ? (IReadOnlyList<EmailAttachment>?)batchAttachments : null;
 
+        if (_soTransferReport.Enabled)
+        {
+            if (!EmailSender.HasSoTransferOutstandingAttachmentPair(batchAttachmentsFinal))
+            {
+                _logger.LogInformation(
+                    "Skipping recipient emails: SO transfer outstanding is enabled but the Excel/PDF pair was not produced (report disabled, failed, or empty). Not sending a generic SQL notification.");
+                return;
+            }
+        }
+        else if (batchAttachmentsFinal is null || batchAttachmentsFinal.Count == 0)
+        {
+            _logger.LogInformation("Skipping recipient emails: no attachments were built and SO transfer report is disabled.");
+            return;
+        }
+
         var sentCount = 0;
 
         foreach (var r in recipients)
@@ -200,7 +214,7 @@ public sealed class Worker : BackgroundService
 
             try
             {
-                await _emailSender.SendDailyNotificationAsync(r, scheduleDate, batchAttachmentsFinal, cancellationToken)
+                await _emailSender.SendScheduledNotificationAsync(r, scheduleDate, batchAttachmentsFinal, cancellationToken)
                     .ConfigureAwait(false);
                 _logger.LogInformation(
                     "Email sent successfully to {Email} (user {Code}, {Name}).",

@@ -141,8 +141,10 @@ public static class PreviewSoHost
             {
                 var report = services.GetRequiredService<SoTransferOutstandingReportService>();
                 var export = services.GetRequiredService<SoTransferOutstandingExportBuilder>();
+                var schedule = services.GetRequiredService<ScheduleService>();
+                var asOf = schedule.GetScheduleDateLocal(DateTimeOffset.UtcNow);
                 var blocks = report.LoadReportAsync(CancellationToken.None).GetAwaiter().GetResult();
-                var bytes = export.BuildExcel(blocks);
+                var bytes = export.BuildExcel(blocks, asOf);
                 WriteBytes(ctx, 200, bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     "so-transfer-outstanding.xlsx");
             }
@@ -167,8 +169,10 @@ public static class PreviewSoHost
             {
                 var report = services.GetRequiredService<SoTransferOutstandingReportService>();
                 var export = services.GetRequiredService<SoTransferOutstandingExportBuilder>();
+                var schedule = services.GetRequiredService<ScheduleService>();
+                var asOf = schedule.GetScheduleDateLocal(DateTimeOffset.UtcNow);
                 var blocks = report.LoadReportAsync(CancellationToken.None).GetAwaiter().GetResult();
-                var bytes = export.BuildPdf(blocks);
+                var bytes = export.BuildPdf(blocks, asOf);
                 WriteBytes(ctx, 200, bytes, "application/pdf", "so-transfer-outstanding.pdf");
             }
             catch (Exception ex)

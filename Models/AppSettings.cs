@@ -12,7 +12,7 @@ public sealed class AppSettings
     /// <summary>Optional one-off / scheduled-tick plain-text test (see Worker and <c>--wait-scheduled-test</c>).</summary>
     public ScheduledTestEmailOptions ScheduledTestEmail { get; set; } = new();
 
-    /// <summary>Optional Excel + PDF attachments for the daily batch (same data for all recipients).</summary>
+    /// <summary>Optional Excel + PDF attachments for each scheduled send (same data for all recipients).</summary>
     public DailyAttachmentReportOptions DailyAttachmentReport { get; set; } = new();
 
     /// <summary>Optional SO outstanding transfer report (Firebird <c>SL_SO</c> / <c>ST_XTRANS</c>) — Excel + PDF, same files for all recipients.</summary>
@@ -98,7 +98,7 @@ public sealed class ScheduledTestEmailOptions
     /// <summary>When true, the scheduled worker tick sends <see cref="PlainBody"/> (see <see cref="To"/>).</summary>
     public bool Enabled { get; set; }
 
-    /// <summary>If true, skip the normal Firebird recipient batch on that tick after the test sends.</summary>
+    /// <summary>If true, skip the main scheduled send (SO / attachments / SY_USER batch) on that tick after the test email.</summary>
     public bool SkipDailyBatch { get; set; } = true;
 
     /// <summary>

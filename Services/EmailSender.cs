@@ -1,4 +1,3 @@
-using System.Globalization;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.Extensions.Configuration;
@@ -13,8 +12,6 @@ public sealed class EmailSender
     /// <summary>Content-Id values for SO outstanding attachments (HTML <c>cid:</c> links).</summary>
     private const string SoOutstandingXlsxContentId = "so-outstanding-xlsx@autoemailing.local";
     private const string SoOutstandingPdfContentId = "so-outstanding-pdf@autoemailing.local";
-
-    private static readonly CultureInfo SubjectCulture = CultureInfo.GetCultureInfo("en-GB");
 
     private readonly SmtpOptions _smtp;
     private readonly IConfiguration _configuration;
@@ -36,7 +33,8 @@ public sealed class EmailSender
         _logger = logger;
     }
 
-    public async Task SendDailyNotificationAsync(
+    /// <summary>Sends the configured HTML notification at the scheduled wall-clock tick (attachments optional).</summary>
+    public async Task SendScheduledNotificationAsync(
         EmailRecipient recipient,
         DateOnly scheduleDate,
         IReadOnlyList<EmailAttachment>? attachments,
@@ -47,9 +45,9 @@ public sealed class EmailSender
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(smtp.FromName, smtp.FromAddress));
         message.To.Add(MailboxAddress.Parse(recipient.Email));
-        message.Subject = HasSoOutstandingAttachments(attachments)
-            ? $"Sales outstanding as of {scheduleDate.ToString("dddd, d MMMM yyyy", SubjectCulture)}"
-            : "Scheduled SQL Accounting notification";
+        message.Subject = HasSoTransferOutstandingAttachmentPair(attachments)
+            ? SoTransferOutstandingExportBuilder.FormatOutstandingReportTitle(scheduleDate)
+            : "SQL Accounting notification";
 
         var body = BuildHtmlBody(recipient, scheduleDate, attachments);
         message.Body = BuildMessageBody(body, attachments);
@@ -226,7 +224,8 @@ public sealed class EmailSender
         return SecureSocketOptions.StartTlsWhenAvailable;
     }
 
-    private static bool HasSoOutstandingAttachments(IReadOnlyList<EmailAttachment>? attachments) =>
+    /// <summary>True when the batch includes the SO transfer outstanding Excel and PDF pair (same filenames as attached in the worker).</summary>
+    public static bool HasSoTransferOutstandingAttachmentPair(IReadOnlyList<EmailAttachment>? attachments) =>
         FindSoOutstanding(attachments, ".xlsx") is not null && FindSoOutstanding(attachments, ".pdf") is not null;
 
     private static EmailAttachment? FindSoOutstanding(IReadOnlyList<EmailAttachment>? attachments, string ext)
@@ -249,7 +248,7 @@ public sealed class EmailSender
         var hasAttachments = attachments is { Count: > 0 };
         var soXlsx = FindSoOutstanding(attachments, ".xlsx");
         var soPdf = FindSoOutstanding(attachments, ".pdf");
-        var hasSoButtons = soXlsx is not null && soPdf is not null;
+        var hasSoButtons = HasSoTransferOutstandingAttachmentPair(attachments);
 
         // Outstanding report layout: EmailFormats/outstanding-report.template.html + OutstandingReportEmailTemplate (separate from this HTML stub).
         var safeName = System.Net.WebUtility.HtmlEncode(recipient.Name);
@@ -259,7 +258,10 @@ public sealed class EmailSender
         var attachNote = hasAttachments && !hasSoButtons
             ? "<p><strong>Attachments:</strong> Excel (<code>.xlsx</code>) and PDF (<code>.pdf</code>) for the same schedule date.</p>"
             : hasAttachments && hasSoButtons
-                ? "<p><strong>Sales outstanding</strong> (as of the date shown below) is attached as Excel and PDF. Use the buttons below, or open the files from your mail app’s attachment list.</p>"
+                ? $"""
+                <p style="margin:0 0 10px 0;font-size:16px;color:#1a365d;"><strong>{System.Net.WebUtility.HtmlEncode(SoTransferOutstandingExportBuilder.FormatOutstandingReportTitle(scheduleDate))}</strong></p>
+                <p style="margin:0;">The Excel and PDF below use the same title. Use the buttons or your mail client’s attachment list to open them.</p>
+                """
                 : "";
 
         var soButtonRow = "";
@@ -280,10 +282,14 @@ public sealed class EmailSender
             soButtonRow = "<p style=\"font-size:12px;color:#555;\">See attached files at the bottom of this message.</p>";
         }
 
+        var intro = hasSoButtons
+            ? "<p>Your <strong>outstanding sales order transfer</strong> report is attached (Excel and PDF).</p>"
+            : "<p>This is your scheduled <strong>SQL Accounting notification</strong> (sent at your configured send time in the schedule time zone).</p>";
+
         return $"""
             <html><body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;">
             <p>Hello {safeName},</p>
-            <p>This is your scheduled <strong>SQL Accounting notification</strong> (sent at your configured send time in the schedule time zone).</p>
+            {intro}
             {attachNote}
             {soButtonRow}
             <ul>
