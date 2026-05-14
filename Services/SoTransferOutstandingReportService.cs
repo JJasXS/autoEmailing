@@ -28,6 +28,8 @@ public sealed class SoTransferOutstandingReportService
             SELECT
               so.DOCKEY AS SO_DOCKEY,
               so.DOCNO,
+              so.DOCDATE AS SO_DOCDATE,
+              COALESCE(so.DOCNOEX, '') AS SO_DOCNOEX,
               so.COMPANYNAME,
               dtl.DTLKEY AS SODTL_DTLKEY,
               ROW_NUMBER() OVER (PARTITION BY so.DOCKEY ORDER BY dtl.DTLKEY) AS LINE_SEQ,
@@ -108,6 +110,8 @@ public sealed class SoTransferOutstandingReportService
                 var docKey = rd["SO_DOCKEY"]?.ToString() ?? "";
                 var dtlKey = rd["SODTL_DTLKEY"]?.ToString() ?? "";
                 var docNo = rd["DOCNO"]?.ToString()?.Trim() ?? "";
+                var soDocDate = ReadDate(rd, "SO_DOCDATE");
+                var docNoEx = rd["SO_DOCNOEX"]?.ToString()?.Trim() ?? "";
                 var company = rd["COMPANYNAME"]?.ToString()?.Trim() ?? "";
                 var lineSeq = ReadInt32(rd, "LINE_SEQ");
                 if (lineSeq <= 0)
@@ -124,6 +128,8 @@ public sealed class SoTransferOutstandingReportService
                 {
                     SoDocKey = docKey,
                     SoDocNo = docNo,
+                    SoDocDate = soDocDate,
+                    SoDocNoEx = docNoEx,
                     CompanyName = company,
                     LineSeq = lineSeq,
                     ItemCode = itemCode,
@@ -188,6 +194,8 @@ public sealed class SoTransferOutstandingReportService
             {
                 SoDocKey = m.block.SoDocKey,
                 SoDocNo = m.block.SoDocNo,
+                SoDocDate = m.block.SoDocDate,
+                SoDocNoEx = m.block.SoDocNoEx,
                 CompanyName = m.block.CompanyName,
                 LineSeq = m.block.LineSeq,
                 ItemCode = m.block.ItemCode,

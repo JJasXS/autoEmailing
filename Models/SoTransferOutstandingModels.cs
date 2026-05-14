@@ -5,6 +5,10 @@ public sealed class SoTransferOutstandingBlock
 {
     public required string SoDocKey { get; init; }
     public required string SoDocNo { get; init; }
+    /// <summary><c>SL_SO.DOCDATE</c> (sales order document date).</summary>
+    public DateTime? SoDocDate { get; init; }
+    /// <summary><c>SL_SO.DOCNOEX</c> (external / extra document no.).</summary>
+    public string SoDocNoEx { get; init; } = "";
     public required string CompanyName { get; init; }
 
     /// <summary>Line sequence within the SO (1, 2, 3…).</summary>
