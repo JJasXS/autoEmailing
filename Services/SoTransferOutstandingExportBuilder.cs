@@ -7,7 +7,7 @@ using SqlAccountingEmailWorker.Models;
 
 namespace SqlAccountingEmailWorker.Services;
 
-/// <summary>Excel + PDF for SO outstanding transfer. Excel: <c>DOCNOEX</c> as Ext. No; transfer doc date/no at end. PDF includes <c>SL_SO.DOCDATE</c> as first column.</summary>
+/// <summary>Excel + PDF for SO outstanding transfer. PDF: with transfers, first body row shows total Tfer qty then one row per transfer.</summary>
 public sealed class SoTransferOutstandingExportBuilder
 {
     /// <summary>Banner title on exports (print / PDF).</summary>
@@ -15,24 +15,24 @@ public sealed class SoTransferOutstandingExportBuilder
     /// <summary>PDF table columns (group header row shows SO + company).</summary>
     private const int ColCount = 11;
     private const int ExcelFlatColCount = 12;
-    /// <summary>PDF sub-rows: blank Seq. through O/Stding.</summary>
-    private const int LeftCols = 7;
+    /// <summary>PDF sub-rows: blank Seq.–Description; repeat Ext. No, Orig; then this transfer’s Tfer + doc + line O/S + delivery.</summary>
+    private const int LeftCols = 3;
     private static readonly CultureInfo DisplayCulture = CultureInfo.GetCultureInfo("en-GB");
 
-    /// <summary>PDF table columns (grouped layout; col 1 = <c>SL_SO.DOCDATE</c>).</summary>
+    /// <summary>PDF columns: no unit price; <c>Ext. No</c> = <c>SL_SO.DOCNOEX</c>; orig / transfer / doc then O/S + delivery after transfer doc no.</summary>
     private static readonly string[] Headers =
     [
         "SO Doc Date",
         "Seq.",
         "Code",
         "Description",
-        "U/Price",
-        "Delivy date",
+        "Ext. No",
         "Orig Qty",
-        "O/Stding",
+        "Tfer Qty",
         "Date",
         "Doc No",
-        "Tfer Qty"
+        "O/Stding",
+        "Delivy date"
     ];
 
     /// <summary>Excel: transfer doc date last, beside transfer doc no; <c>Ext. No</c> = <c>DOCNOEX</c>.</summary>
@@ -240,10 +240,14 @@ public sealed class SoTransferOutstandingExportBuilder
                         }
 
                         var transfers = b.Transfers;
-                        var first = transfers.Count > 0 ? transfers[0] : null;
-                        WritePdfMainRow(table, b, first);
-                        for (var i = 1; i < transfers.Count; i++)
-                            WritePdfSubRow(table, b, transfers[i]);
+                        if (transfers.Count == 0)
+                            WritePdfLineWithoutTransfers(table, b);
+                        else
+                        {
+                            WritePdfTransferTotalRow(table, b, SumTransferQty(transfers));
+                            foreach (var t in transfers)
+                                WritePdfTransferDetailRow(table, b, t);
+                        }
                     }
                 });
             });
@@ -259,29 +263,58 @@ public sealed class SoTransferOutstandingExportBuilder
             .BorderBottom(1)
             .BorderColor(Colors.Blue.Darken4);
 
-    private static void WritePdfMainRow(TableDescriptor table, SoTransferOutstandingBlock b, SoTransferDocumentLine? first)
+    private static decimal SumTransferQty(IReadOnlyList<SoTransferDocumentLine> transfers)
+    {
+        decimal s = 0;
+        foreach (var t in transfers)
+            s += t.TransferQty;
+        return s;
+    }
+
+    /// <summary>SO line with no transfer rows — empty transfer columns.</summary>
+    private static void WritePdfLineWithoutTransfers(TableDescriptor table, SoTransferOutstandingBlock b)
     {
         table.Cell().Element(BodyCell).Text(FormatShortDate(b.SoDocDate));
         table.Cell().Element(BodyCell).Text(b.LineSeq.ToString(DisplayCulture));
         table.Cell().Element(BodyCell).Text(b.ItemCode);
         table.Cell().Element(BodyCell).Text(Truncate(b.Description, 72));
-        table.Cell().Element(BodyCell).Text(b.UnitPrice.ToString("N2", DisplayCulture));
-        table.Cell().Element(BodyCell).Text(FormatShortDate(b.DeliveryDate));
+        table.Cell().Element(BodyCell).Text(b.SoDocNoEx);
         table.Cell().Element(BodyCell).Text(b.OrigQty.ToString("N2", DisplayCulture));
+        table.Cell().Element(BodyCell).Text("");
+        table.Cell().Element(BodyCell).Text("");
+        table.Cell().Element(BodyCell).Text("");
         table.Cell().Element(BodyCell).Text(b.OutstandingQty.ToString("N2", DisplayCulture));
-        table.Cell().Element(BodyCell).Text(FormatShortDate(first?.TransferDocDate));
-        table.Cell().Element(BodyCell).Text(first?.TransferDocNo ?? "");
-        table.Cell().Element(BodyCell).Text(first is null ? "" : first.TransferQty.ToString("N2", DisplayCulture));
+        table.Cell().Element(BodyCell).Text(FormatShortDate(b.DeliveryDate));
     }
 
-    private static void WritePdfSubRow(TableDescriptor table, SoTransferOutstandingBlock b, SoTransferDocumentLine t)
+    /// <summary>First row under the line when transfers exist: same line fields, Tfer = sum of all transfer qty, no transfer doc date/no.</summary>
+    private static void WritePdfTransferTotalRow(TableDescriptor table, SoTransferOutstandingBlock b, decimal totalTransferQty)
+    {
+        table.Cell().Element(BodyCell).Text(FormatShortDate(b.SoDocDate));
+        table.Cell().Element(BodyCell).Text(b.LineSeq.ToString(DisplayCulture));
+        table.Cell().Element(BodyCell).Text(b.ItemCode);
+        table.Cell().Element(BodyCell).Text(Truncate(b.Description, 72));
+        table.Cell().Element(BodyCell).Text(b.SoDocNoEx);
+        table.Cell().Element(BodyCell).Text(b.OrigQty.ToString("N2", DisplayCulture));
+        table.Cell().Element(BodyCell).Text(totalTransferQty.ToString("N2", DisplayCulture));
+        table.Cell().Element(BodyCell).Text("");
+        table.Cell().Element(BodyCell).Text("");
+        table.Cell().Element(BodyCell).Text(b.OutstandingQty.ToString("N2", DisplayCulture));
+        table.Cell().Element(BodyCell).Text(FormatShortDate(b.DeliveryDate));
+    }
+
+    private static void WritePdfTransferDetailRow(TableDescriptor table, SoTransferOutstandingBlock b, SoTransferDocumentLine t)
     {
         table.Cell().Element(SubCell).Text(FormatShortDate(b.SoDocDate));
         for (var i = 0; i < LeftCols; i++)
             table.Cell().Element(SubCell).Text("");
+        table.Cell().Element(SubCell).Text(b.SoDocNoEx);
+        table.Cell().Element(SubCell).Text(b.OrigQty.ToString("N2", DisplayCulture));
+        table.Cell().Element(SubCell).Text(t.TransferQty.ToString("N2", DisplayCulture));
         table.Cell().Element(SubCell).Text(FormatShortDate(t.TransferDocDate));
         table.Cell().Element(SubCell).Text(t.TransferDocNo);
-        table.Cell().Element(SubCell).Text(t.TransferQty.ToString("N2", DisplayCulture));
+        table.Cell().Element(SubCell).Text(b.OutstandingQty.ToString("N2", DisplayCulture));
+        table.Cell().Element(SubCell).Text(FormatShortDate(b.DeliveryDate));
     }
 
     private static IContainer BodyCell(IContainer x) =>
