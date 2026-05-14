@@ -30,7 +30,7 @@ public sealed class SoTransferOutstandingExportBuilder
         "Orig Qty",
         "Tfer Qty",
         "O/Stding",
-        "Transfer doc date",
+        "Delivery Date",
         "Doc No"
     ];
 
@@ -46,7 +46,7 @@ public sealed class SoTransferOutstandingExportBuilder
         "Orig. Qty",
         "Tfer Qty",
         "O/S Qty",
-        "Transfer doc date",
+        "Delivery Date",
         "Doc No"
     ];
 
@@ -148,7 +148,7 @@ public sealed class SoTransferOutstandingExportBuilder
         ws.Cell(r, 6).Value = b.SoDocNoEx;
         ws.Cell(r, 7).Clear();
         ws.Cell(r, 8).Value = t.TransferQty;
-        ws.Cell(r, 9).Value = 0m;
+        ws.Cell(r, 9).Clear();
         SetExcelSoDeliveryDateCell(ws, r, 10, t.TransferDocDate);
         ws.Cell(r, 11).Value = t.TransferDocNo;
         ws.Range(r, 1, r, ExcelFlatColCount).Style.Fill.BackgroundColor = XLColor.FromArgb(248, 250, 252);
@@ -349,20 +349,13 @@ public sealed class SoTransferOutstandingExportBuilder
         table.Cell().Element(SubCell).Text(b.SoDocNoEx);
         table.Cell().Element(SubCell).Text("");
         table.Cell().Element(SubCell).Text(t.TransferQty.ToString("N2", DisplayCulture));
-        PdfQtySubCellSemiBold(table, "0.00");
+        table.Cell().Element(SubCell).Text("");
         table.Cell().Element(SubCell).Text(FormatShortDate(t.TransferDocDate));
         table.Cell().Element(SubCell).Text(t.TransferDocNo);
     }
 
     private static void PdfQtyCellSemiBold(TableDescriptor table, string formattedQty) =>
         table.Cell().Element(BodyCell).Text(t =>
-        {
-            t.DefaultTextStyle(s => s.SemiBold());
-            t.Span(formattedQty);
-        });
-
-    private static void PdfQtySubCellSemiBold(TableDescriptor table, string formattedQty) =>
-        table.Cell().Element(SubCell).Text(t =>
         {
             t.DefaultTextStyle(s => s.SemiBold());
             t.Span(formattedQty);
