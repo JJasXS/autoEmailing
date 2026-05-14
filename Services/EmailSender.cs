@@ -1,3 +1,4 @@
+using System.Globalization;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.Extensions.Configuration;
@@ -9,6 +10,12 @@ namespace SqlAccountingEmailWorker.Services;
 
 public sealed class EmailSender
 {
+    /// <summary>Content-Id values for SO outstanding attachments (HTML <c>cid:</c> links).</summary>
+    private const string SoOutstandingXlsxContentId = "so-outstanding-xlsx@autoemailing.local";
+    private const string SoOutstandingPdfContentId = "so-outstanding-pdf@autoemailing.local";
+
+    private static readonly CultureInfo SubjectCulture = CultureInfo.GetCultureInfo("en-GB");
+
     private readonly SmtpOptions _smtp;
     private readonly IConfiguration _configuration;
     private readonly TenantBootstrapService _tenantBootstrap;
@@ -40,9 +47,11 @@ public sealed class EmailSender
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(smtp.FromName, smtp.FromAddress));
         message.To.Add(MailboxAddress.Parse(recipient.Email));
-        message.Subject = "Daily SQL Accounting Notification";
+        message.Subject = HasSoOutstandingAttachments(attachments)
+            ? $"Sales outstanding as of {scheduleDate.ToString("dddd, d MMMM yyyy", SubjectCulture)}"
+            : "Scheduled SQL Accounting notification";
 
-        var body = BuildHtmlBody(recipient, scheduleDate, attachments is { Count: > 0 });
+        var body = BuildHtmlBody(recipient, scheduleDate, attachments);
         message.Body = BuildMessageBody(body, attachments);
 
         using var client = CreateSmtpClient();
@@ -217,24 +226,69 @@ public sealed class EmailSender
         return SecureSocketOptions.StartTlsWhenAvailable;
     }
 
-    private static string BuildHtmlBody(EmailRecipient recipient, DateOnly scheduleDate, bool hasAttachments)
+    private static bool HasSoOutstandingAttachments(IReadOnlyList<EmailAttachment>? attachments) =>
+        FindSoOutstanding(attachments, ".xlsx") is not null && FindSoOutstanding(attachments, ".pdf") is not null;
+
+    private static EmailAttachment? FindSoOutstanding(IReadOnlyList<EmailAttachment>? attachments, string ext)
     {
-        // Outstanding report layout: EmailFormats/outstanding-report.template.html + OutstandingReportEmailTemplate (separate from this daily stub).
+        if (attachments is null)
+            return null;
+        foreach (var a in attachments)
+        {
+            if (!a.FileName.StartsWith("SO-transfer-outstanding_", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (a.FileName.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
+                return a;
+        }
+
+        return null;
+    }
+
+    private static string BuildHtmlBody(EmailRecipient recipient, DateOnly scheduleDate, IReadOnlyList<EmailAttachment>? attachments)
+    {
+        var hasAttachments = attachments is { Count: > 0 };
+        var soXlsx = FindSoOutstanding(attachments, ".xlsx");
+        var soPdf = FindSoOutstanding(attachments, ".pdf");
+        var hasSoButtons = soXlsx is not null && soPdf is not null;
+
+        // Outstanding report layout: EmailFormats/outstanding-report.template.html + OutstandingReportEmailTemplate (separate from this HTML stub).
         var safeName = System.Net.WebUtility.HtmlEncode(recipient.Name);
         var safeCode = System.Net.WebUtility.HtmlEncode(recipient.Code);
         var dateStr = scheduleDate.ToString("yyyy-MM-dd", null);
-        var attachNote = hasAttachments
-            ? "<p><strong>Attachments:</strong> Excel (<code>.xlsx</code>) and PDF (<code>.pdf</code>) outstanding summary for the same date.</p>"
-            : "";
+
+        var attachNote = hasAttachments && !hasSoButtons
+            ? "<p><strong>Attachments:</strong> Excel (<code>.xlsx</code>) and PDF (<code>.pdf</code>) for the same schedule date.</p>"
+            : hasAttachments && hasSoButtons
+                ? "<p><strong>Sales outstanding</strong> (as of the date shown below) is attached as Excel and PDF. Use the buttons below, or open the files from your mail app’s attachment list.</p>"
+                : "";
+
+        var soButtonRow = "";
+        if (hasSoButtons)
+        {
+            var xName = System.Net.WebUtility.HtmlEncode(soXlsx!.FileName);
+            var pName = System.Net.WebUtility.HtmlEncode(soPdf!.FileName);
+            soButtonRow = $"""
+                <div style="margin:18px 0 8px 0;">
+                  <a href="cid:{SoOutstandingXlsxContentId}" style="display:inline-block;padding:12px 22px;margin:0 8px 8px 0;background:#1a365d;color:#ffffff !important;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">Download Excel</a>
+                  <a href="cid:{SoOutstandingPdfContentId}" style="display:inline-block;padding:12px 22px;margin:0 0 8px 0;background:#2b6cb0;color:#ffffff !important;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">Download PDF</a>
+                </div>
+                <p style="font-size:12px;color:#555;margin:0 0 12px 0;">Filenames: <code>{xName}</code> and <code>{pName}</code>. Some mail clients only support downloads from the attachment list.</p>
+                """;
+        }
+        else if (hasAttachments)
+        {
+            soButtonRow = "<p style=\"font-size:12px;color:#555;\">See attached files at the bottom of this message.</p>";
+        }
 
         return $"""
             <html><body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#222;">
             <p>Hello {safeName},</p>
-            <p>This is your scheduled <strong>Daily SQL Accounting Notification</strong>.</p>
+            <p>This is your scheduled <strong>SQL Accounting notification</strong> (sent at your configured send time in the schedule time zone).</p>
             {attachNote}
+            {soButtonRow}
             <ul>
               <li><strong>User code:</strong> {safeCode}</li>
-              <li><strong>Date ({dateStr}):</strong> calendar date in your configured schedule time zone</li>
+              <li><strong>Date ({dateStr}):</strong> reference date in the configured schedule time zone</li>
             </ul>
             <p>If you have questions, contact your system administrator.</p>
             <p style="color:#666;font-size:12px;">Message generated automatically. Please do not reply.</p>
@@ -250,6 +304,9 @@ public sealed class EmailSender
         var mixed = new Multipart("mixed");
         mixed.Add(new TextPart("html") { Text = htmlBody });
 
+        var soXlsxPart = FindSoOutstanding(attachments, ".xlsx");
+        var soPdfPart = FindSoOutstanding(attachments, ".pdf");
+
         foreach (var a in attachments)
         {
             var slash = a.ContentType.IndexOf('/');
@@ -262,6 +319,12 @@ public sealed class EmailSender
                 ContentTransferEncoding = ContentEncoding.Base64,
                 FileName = a.FileName
             };
+
+            if (soXlsxPart is not null && string.Equals(a.FileName, soXlsxPart.FileName, StringComparison.OrdinalIgnoreCase))
+                part.ContentId = SoOutstandingXlsxContentId;
+            else if (soPdfPart is not null && string.Equals(a.FileName, soPdfPart.FileName, StringComparison.OrdinalIgnoreCase))
+                part.ContentId = SoOutstandingPdfContentId;
+
             mixed.Add(part);
         }
 

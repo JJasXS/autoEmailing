@@ -12,10 +12,12 @@ public sealed class Worker : BackgroundService
     private readonly EmailSender _emailSender;
     private readonly EmailLogService _emailLog;
     private readonly ScheduleService _schedule;
-    private readonly ScheduleOptions _scheduleOptions;
     private readonly ScheduledTestEmailOptions _scheduledTest;
     private readonly DailyAttachmentReportOptions _dailyAttachmentReport;
+    private readonly SoTransferOutstandingReportOptions _soTransferReport;
     private readonly DailyReportExcelPdfGenerator _reportAttachmentGenerator;
+    private readonly SoTransferOutstandingReportService _soTransferOutstandingReport;
+    private readonly SoTransferOutstandingExportBuilder _soTransferOutstandingExport;
 
     public Worker(
         ILogger<Worker> logger,
@@ -24,6 +26,8 @@ public sealed class Worker : BackgroundService
         EmailLogService emailLog,
         ScheduleService schedule,
         DailyReportExcelPdfGenerator reportAttachmentGenerator,
+        SoTransferOutstandingReportService soTransferOutstandingReport,
+        SoTransferOutstandingExportBuilder soTransferOutstandingExport,
         IOptions<AppSettings> appOptions)
     {
         _logger = logger;
@@ -32,39 +36,17 @@ public sealed class Worker : BackgroundService
         _emailLog = emailLog;
         _schedule = schedule;
         _reportAttachmentGenerator = reportAttachmentGenerator;
-        _scheduleOptions = appOptions.Value.Schedule;
+        _soTransferOutstandingReport = soTransferOutstandingReport;
+        _soTransferOutstandingExport = soTransferOutstandingExport;
         _scheduledTest = appOptions.Value.ScheduledTestEmail;
         _dailyAttachmentReport = appOptions.Value.DailyAttachmentReport;
+        _soTransferReport = appOptions.Value.SoTransferOutstandingReport;
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("SQL Accounting email worker service started.");
-        _logger.LogInformation("Send history file: {Path}", _emailLog.HistoryFilePath);
-
-        var freq = (_scheduleOptions.SendFrequency ?? "Daily").Trim();
-        if (_schedule.IsWeeklySchedule())
-            _logger.LogInformation(
-                "Schedule mode: Weekly on {Day} at {SendTime} ({TzId}).",
-                _scheduleOptions.SendDayOfWeek,
-                _schedule.GetSendTimeOfDay().ToString("HH:mm:ss", CultureInfo.InvariantCulture),
-                _scheduleOptions.TimeZone);
-        else
-            _logger.LogInformation(
-                "Schedule mode: Daily at {SendTime} ({TzId}). SendFrequency={Freq}.",
-                _schedule.GetSendTimeOfDay().ToString("HH:mm:ss", CultureInfo.InvariantCulture),
-                _scheduleOptions.TimeZone,
-                string.IsNullOrEmpty(freq) ? "Daily" : freq);
-
-        var next = _schedule.GetNextSendUtc(DateTimeOffset.UtcNow);
-        var tz = _schedule.GetTimeZone();
-        var nextLocal = TimeZoneInfo.ConvertTimeFromUtc(next.UtcDateTime, tz);
-        _logger.LogInformation(
-            "Next scheduled send — local: {NextLocal} ({TzId}) | UTC: {NextUtc:o} | Configured time-of-day: {SendTime}",
-            nextLocal.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-            tz.Id,
-            next.UtcDateTime,
-            _schedule.GetSendTimeOfDay().ToString("HH:mm:ss", CultureInfo.InvariantCulture));
+        _logger.LogInformation("Send history file (append-only audit, does not block sends): {Path}", _emailLog.HistoryFilePath);
 
         await base.StartAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -82,14 +64,18 @@ public sealed class Worker : BackgroundService
             var tz = _schedule.GetTimeZone();
             var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(now.UtcDateTime, tz);
             var nextLocal = TimeZoneInfo.ConvertTimeFromUtc(next.UtcDateTime, tz);
-            const string localFmt = "yyyy-MM-dd HH:mm:ss";
+            const string lf = "yyyy-MM-dd HH:mm:ss";
+            var sendTimeStr = _schedule.GetSendTimeOfDay().ToString("HH:mm", CultureInfo.InvariantCulture);
             _logger.LogInformation(
-                "Now local: {NowLocal} ({TzId}) | Next send local: {NextLocal} | Next UTC: {NextUtc:o} | Sleep: {Delay}",
-                nowLocal.ToString(localFmt, CultureInfo.InvariantCulture),
+                "Next batch when clock reaches {SendTime} in {TzId}: now {NowLocal} → next {NextLocal} (~{Delay}). " +
+                "If next is tomorrow, today's {SendTime} has already passed in that zone (next wall-clock hit, not a 'daily' calendar rule).",
+                sendTimeStr,
                 tz.Id,
-                nextLocal.ToString(localFmt, CultureInfo.InvariantCulture),
-                next.UtcDateTime,
-                delay);
+                nowLocal.ToString(lf, CultureInfo.InvariantCulture),
+                nextLocal.ToString(lf, CultureInfo.InvariantCulture),
+                delay,
+                sendTimeStr);
+
             try
             {
                 await Task.Delay(delay, stoppingToken).ConfigureAwait(false);
@@ -101,6 +87,16 @@ public sealed class Worker : BackgroundService
 
             if (stoppingToken.IsCancellationRequested)
                 break;
+
+            var wokeAt = DateTimeOffset.UtcNow;
+            if (wokeAt < next - TimeSpan.FromSeconds(1))
+            {
+                _logger.LogWarning(
+                    "Skipping batch: woke before scheduled instant (now {Woke:o}, next {Next:o}). Recomputing sleep.",
+                    wokeAt,
+                    next);
+                continue;
+            }
 
             await RunSendBatchAsync(sendNow: false, stoppingToken).ConfigureAwait(false);
         }
@@ -114,11 +110,12 @@ public sealed class Worker : BackgroundService
     {
         var utcNow = DateTimeOffset.UtcNow;
         var scheduleDate = _schedule.GetScheduleDateLocal(utcNow);
+        var sendTimeSlot = _schedule.GetSendTimeOfDay().ToString("HH:mm", CultureInfo.InvariantCulture);
 
         _logger.LogInformation(
             "Starting email batch ({Mode}). Schedule date (local): {ScheduleDate}.",
             sendNow ? "manual --send-now" : "scheduled",
-            scheduleDate);
+            scheduleDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
 
         if (!sendNow && _scheduledTest.Enabled && !string.IsNullOrWhiteSpace(_scheduledTest.PlainBody))
         {
@@ -143,26 +140,53 @@ public sealed class Worker : BackgroundService
 
         _logger.LogInformation("Recipients found (after UDF filter): {Count}.", recipients.Count);
 
-        IReadOnlyList<EmailAttachment>? batchAttachments = null;
+        var batchAttachments = new List<EmailAttachment>();
         if (_dailyAttachmentReport.Enabled && !string.IsNullOrWhiteSpace(_dailyAttachmentReport.Sql))
         {
             try
             {
                 var rows = await _firebird.GetDailyReportRowsAsync(_dailyAttachmentReport.Sql, cancellationToken)
                     .ConfigureAwait(false);
-                batchAttachments = _reportAttachmentGenerator.BuildAttachments(rows, _dailyAttachmentReport, scheduleDate);
+                batchAttachments.AddRange(_reportAttachmentGenerator.BuildAttachments(rows, _dailyAttachmentReport, scheduleDate));
                 _logger.LogInformation(
                     "Daily attachment report: built Excel + PDF ({RowCount} row(s)).",
                     rows.Count);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Daily attachment report failed; sending HTML body only (no attachments).");
+                _logger.LogError(ex, "Daily attachment report failed; continuing without those attachments.");
             }
         }
 
+        if (_soTransferReport.Enabled)
+        {
+            try
+            {
+                var blocks = await _soTransferOutstandingReport.LoadReportAsync(cancellationToken).ConfigureAwait(false);
+                var stamp = scheduleDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var xlsx = _soTransferOutstandingExport.BuildExcel(blocks);
+                var pdf = _soTransferOutstandingExport.BuildPdf(blocks);
+                batchAttachments.Add(new EmailAttachment(
+                    $"SO-transfer-outstanding_{stamp}.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    xlsx));
+                batchAttachments.Add(new EmailAttachment(
+                    $"SO-transfer-outstanding_{stamp}.pdf",
+                    "application/pdf",
+                    pdf));
+                _logger.LogInformation(
+                    "SO transfer outstanding report: built Excel + PDF ({BlockCount} SO line block(s)).",
+                    blocks.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SO transfer outstanding report failed; continuing without those attachments.");
+            }
+        }
+
+        var batchAttachmentsFinal = batchAttachments.Count > 0 ? (IReadOnlyList<EmailAttachment>?)batchAttachments : null;
+
         var sentCount = 0;
-        var skippedDuplicateCount = 0;
 
         foreach (var r in recipients)
         {
@@ -174,25 +198,15 @@ public sealed class Worker : BackgroundService
                 continue;
             }
 
-            // Manual --send-now ignores send history so you can re-test the same day.
-            if (!sendNow
-                && await _emailLog.WasAlreadySentAsync(r.Code, scheduleDate, cancellationToken).ConfigureAwait(false))
-            {
-                skippedDuplicateCount++;
-                _logger.LogInformation(
-                    "Skipping {Code} ({Email}): already sent successfully for {ScheduleDate}.",
-                    r.Code, r.Email, scheduleDate);
-                continue;
-            }
-
             try
             {
-                await _emailSender.SendDailyNotificationAsync(r, scheduleDate, batchAttachments, cancellationToken)
+                await _emailSender.SendDailyNotificationAsync(r, scheduleDate, batchAttachmentsFinal, cancellationToken)
                     .ConfigureAwait(false);
                 _logger.LogInformation(
                     "Email sent successfully to {Email} (user {Code}, {Name}).",
                     r.Email, r.Code, r.Name);
-                await _emailLog.RecordSuccessAsync(r.Code, scheduleDate, r.Email, cancellationToken).ConfigureAwait(false);
+                await _emailLog.RecordSuccessAsync(r.Code, scheduleDate, sendTimeSlot, r.Email, cancellationToken)
+                    .ConfigureAwait(false);
                 sentCount++;
             }
             catch (Exception ex)
@@ -201,17 +215,14 @@ public sealed class Worker : BackgroundService
                     ex,
                     "Email failed for {Email} (user {Code}, {Name}).",
                     r.Email, r.Code, r.Name);
-                await _emailLog.RecordFailureAsync(r.Code, scheduleDate, r.Email, ex.Message, cancellationToken)
+                await _emailLog.RecordFailureAsync(r.Code, scheduleDate, sendTimeSlot, r.Email, ex.Message, cancellationToken)
                     .ConfigureAwait(false);
             }
         }
 
         _logger.LogInformation(
-            "Email batch completed. Sent this run: {Sent}. Skipped (already in history for {ScheduleDate}): {SkippedDup}.{SendNowHint}",
-            sentCount,
-            scheduleDate,
-            skippedDuplicateCount,
-            sendNow ? " Manual run does not skip duplicates." : " Use --send-now to force another send today, or remove the entry from the send history file.");
+            "Email batch completed. Sent this run: {Sent}. (Send history is logged per attempt; sends are not limited by history.)",
+            sentCount);
     }
 
     private async Task SendScheduledTestEmailsAsync(CancellationToken cancellationToken)

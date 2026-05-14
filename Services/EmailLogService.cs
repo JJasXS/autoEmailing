@@ -38,30 +38,18 @@ public sealed class EmailLogService
         return Task.CompletedTask;
     }
 
-    public async Task<bool> WasAlreadySentAsync(string userCode, DateOnly scheduleDate, CancellationToken cancellationToken)
-    {
-        await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            var store = await LoadAsync(cancellationToken).ConfigureAwait(false);
-            var key = userCode.Trim();
-            return store.Entries.Any(e =>
-                e.Success
-                && string.Equals(e.UserCode, key, StringComparison.OrdinalIgnoreCase)
-                && e.ScheduleDate == scheduleDate.ToString("yyyy-MM-dd", null));
-        }
-        finally
-        {
-            _lock.Release();
-        }
-    }
-
-    public async Task RecordSuccessAsync(string userCode, DateOnly scheduleDate, string toEmail, CancellationToken cancellationToken)
+    public async Task RecordSuccessAsync(
+        string userCode,
+        DateOnly scheduleDate,
+        string sendTimeSlot,
+        string toEmail,
+        CancellationToken cancellationToken)
     {
         await AppendEntryAsync(new SendHistoryEntry
         {
             UserCode = userCode.Trim(),
             ScheduleDate = scheduleDate.ToString("yyyy-MM-dd", null),
+            SendTimeSlot = (sendTimeSlot ?? "").Trim(),
             ToEmail = toEmail,
             Success = true,
             Error = null,
@@ -69,16 +57,26 @@ public sealed class EmailLogService
         }, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation(
-            "Send history recorded: user {UserCode}, date {ScheduleDate}, to {ToEmail}, success",
-            userCode, scheduleDate, toEmail);
+            "Send history recorded (success): user {UserCode}, date {ScheduleDate}, sendTime {SendTime}, to {ToEmail}",
+            userCode,
+            scheduleDate.ToString("yyyy-MM-dd", null),
+            (sendTimeSlot ?? "").Trim(),
+            toEmail);
     }
 
-    public async Task RecordFailureAsync(string userCode, DateOnly scheduleDate, string toEmail, string error, CancellationToken cancellationToken)
+    public async Task RecordFailureAsync(
+        string userCode,
+        DateOnly scheduleDate,
+        string sendTimeSlot,
+        string toEmail,
+        string error,
+        CancellationToken cancellationToken)
     {
         await AppendEntryAsync(new SendHistoryEntry
         {
             UserCode = userCode.Trim(),
             ScheduleDate = scheduleDate.ToString("yyyy-MM-dd", null),
+            SendTimeSlot = (sendTimeSlot ?? "").Trim(),
             ToEmail = toEmail,
             Success = false,
             Error = error,
@@ -86,8 +84,12 @@ public sealed class EmailLogService
         }, cancellationToken).ConfigureAwait(false);
 
         _logger.LogWarning(
-            "Send history recorded (failed): user {UserCode}, date {ScheduleDate}, to {ToEmail}, error {Error}",
-            userCode, scheduleDate, toEmail, error);
+            "Send history recorded (failure): user {UserCode}, date {ScheduleDate}, sendTime {SendTime}, to {ToEmail}, error {Error}",
+            userCode,
+            scheduleDate.ToString("yyyy-MM-dd", null),
+            (sendTimeSlot ?? "").Trim(),
+            toEmail,
+            error);
     }
 
     private async Task AppendEntryAsync(SendHistoryEntry entry, CancellationToken cancellationToken)
@@ -143,6 +145,8 @@ public sealed class EmailLogService
     {
         public string UserCode { get; set; } = "";
         public string ScheduleDate { get; set; } = "";
+        /// <summary>Optional <c>HH:mm</c> from schedule for audit only (not used to block sends).</summary>
+        public string? SendTimeSlot { get; set; }
         public string ToEmail { get; set; } = "";
         public bool Success { get; set; }
         public string? Error { get; set; }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using SqlAccountingEmailWorker.Models;
 
@@ -6,11 +7,16 @@ namespace SqlAccountingEmailWorker.Services;
 
 public sealed class ScheduleService
 {
-    private readonly ScheduleOptions _options;
+    /// <summary>Time-of-day for sends; set via environment <c>App__Schedule__SendTime=HH:mm</c> (or same key in JSON under <c>App</c>).</summary>
+    public const string SendTimeConfigurationKey = "App:Schedule:SendTime";
 
-    public ScheduleService(IOptions<AppSettings> appOptions)
+    private readonly ScheduleOptions _options;
+    private readonly IConfiguration _configuration;
+
+    public ScheduleService(IOptions<AppSettings> appOptions, IConfiguration configuration)
     {
         _options = appOptions.Value.Schedule;
+        _configuration = configuration;
     }
 
     public TimeZoneInfo GetTimeZone()
@@ -28,14 +34,18 @@ public sealed class ScheduleService
 
     public TimeOnly GetSendTimeOfDay()
     {
-        var raw = (_options.SendTime ?? "").Trim();
+        var raw = (_configuration[SendTimeConfigurationKey] ?? "").Trim();
+        if (raw.Length == 0)
+            throw new InvalidOperationException(
+                $"Set {SendTimeConfigurationKey} (e.g. in .env: App__Schedule__SendTime=10:18). No default is applied.");
+
         // Common mistake: 11.03 instead of 11:03 (dot as separator).
         if (raw.Contains('.', StringComparison.Ordinal) && !raw.Contains(':', StringComparison.Ordinal))
             raw = raw.Replace('.', ':');
 
         if (!TimeOnly.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var t))
             throw new InvalidOperationException(
-                $"Schedule:SendTime '{_options.SendTime}' is invalid. Use HH:mm (colon), e.g. 11:03 — not 11.03.");
+                $"{SendTimeConfigurationKey} '{raw}' is invalid. Use HH:mm (colon), e.g. 11:03 — not 11.03.");
         return t;
     }
 
@@ -45,7 +55,10 @@ public sealed class ScheduleService
         return f.Equals("Weekly", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Next instant when the job should run, in UTC (daily or weekly per <see cref="ScheduleOptions"/>).</summary>
+    /// <summary>
+    /// Next UTC instant to run: weekly uses <see cref="ScheduleOptions"/>; otherwise the next <see cref="GetSendTimeOfDay"/>
+    /// on the local clock in <see cref="GetTimeZone"/> that is still on or after <paramref name="utcNow"/> (computed from “right now” in that zone).
+    /// </summary>
     public DateTimeOffset GetNextSendUtc(DateTimeOffset utcNow)
     {
         var tz = GetTimeZone();
@@ -59,16 +72,20 @@ public sealed class ScheduleService
             localNext = GetNextWeeklySendLocal(localNow, sendTime, dow);
         }
         else
-        {
-            var todaySend = localNow.Date.Add(sendTime.ToTimeSpan());
-            localNext = localNow <= todaySend ? todaySend : todaySend.AddDays(1);
-        }
+            localNext = GetNextWallClockSendOnOrAfterLocal(localNow, sendTime);
 
         var utcNext = TimeZoneInfo.ConvertTimeToUtc(localNext, tz);
         return new DateTimeOffset(utcNext, TimeSpan.Zero);
     }
 
-    /// <summary>Calendar date in the configured schedule time zone (for duplicate checks).</summary>
+    /// <summary>Earliest local instant at <paramref name="sendTime"/> that is still on or after <paramref name="localNow"/> (same calendar day, or next day).</summary>
+    private static DateTime GetNextWallClockSendOnOrAfterLocal(DateTime localNow, TimeOnly sendTime)
+    {
+        var slotToday = localNow.Date.Add(sendTime.ToTimeSpan());
+        return localNow <= slotToday ? slotToday : slotToday.AddDays(1);
+    }
+
+    /// <summary>Calendar date in the configured schedule time zone (batch stamp / history).</summary>
     public DateOnly GetScheduleDateLocal(DateTimeOffset utcNow)
     {
         var tz = GetTimeZone();

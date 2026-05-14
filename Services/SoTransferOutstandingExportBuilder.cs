@@ -7,15 +7,15 @@ using SqlAccountingEmailWorker.Models;
 
 namespace SqlAccountingEmailWorker.Services;
 
-/// <summary>Excel + PDF for SO outstanding transfer. PDF: with transfers, first body row shows total Tfer qty then one row per transfer.</summary>
+/// <summary>Excel + PDF for SO outstanding transfer. Column order aligned; transfer sub-rows omit repeated SO/line fields (same as PDF).</summary>
 public sealed class SoTransferOutstandingExportBuilder
 {
     /// <summary>Banner title on exports (print / PDF).</summary>
     private const string ReportListingTitle = "Outstanding sales order listing";
     /// <summary>PDF table columns (group header row shows SO + company).</summary>
     private const int ColCount = 11;
-    private const int ExcelFlatColCount = 12;
-    /// <summary>PDF sub-rows: blank Seq.–Description; repeat Ext. No, Orig; then this transfer’s Tfer + doc + line O/S + delivery.</summary>
+    private const int ExcelFlatColCount = 13;
+    /// <summary>PDF sub-rows: blank SO Doc Date, Seq.–Description, Orig, O/S, delivery; Ext. No + Tfer + Date + Doc No only (line totals carry orig / outstanding).</summary>
     private const int LeftCols = 3;
     private static readonly CultureInfo DisplayCulture = CultureInfo.GetCultureInfo("en-GB");
 
@@ -35,21 +35,22 @@ public sealed class SoTransferOutstandingExportBuilder
         "Delivy date"
     ];
 
-    /// <summary>Excel: transfer doc date last, beside transfer doc no; <c>Ext. No</c> = <c>DOCNOEX</c>.</summary>
+    /// <summary>Excel flat import: same column order as PDF table + leading SO No / Company; total Tfer row then one row per transfer.</summary>
     private static readonly string[] ExcelFlatHeaders =
     [
         "SO No",
-        "SO Doc Date",
         "Company Name",
-        "Item Code",
+        "SO Doc Date",
+        "Seq.",
+        "Code",
         "Description",
         "Ext. No",
         "Orig. Qty",
-        "Transfer Qty",
+        "Tfer Qty",
+        "Date",
+        "Doc No",
         "O/S Qty",
-        "Delivery Date",
-        "Transfer Doc Date",
-        "Transfer Doc No"
+        "Delivy date"
     ];
 
     public byte[] BuildExcel(IReadOnlyList<SoTransferOutstandingBlock> blocks)
@@ -77,21 +78,23 @@ public sealed class SoTransferOutstandingExportBuilder
             var transfers = b.Transfers;
             if (transfers.Count == 0)
             {
-                WriteExcelFlatRow(ws, r, b, null);
+                WriteExcelLineWithoutTransfers(ws, r, b);
                 r++;
             }
             else
             {
+                WriteExcelTransferTotalRow(ws, r, b, SumTransferQty(transfers));
+                r++;
                 foreach (var t in transfers)
                 {
-                    WriteExcelFlatRow(ws, r, b, t);
+                    WriteExcelTransferDetailRow(ws, r, b, t);
                     r++;
                 }
             }
         }
 
         ApplyExcelFlatColumnWidths(ws);
-        ws.Column(5).Style.Alignment.WrapText = true;
+        ws.Column(6).Style.Alignment.WrapText = true;
         ws.Column(1).Style.NumberFormat.Format = "@";
         ws.SheetView.FreezeRows(1);
         using var ms = new MemoryStream();
@@ -99,40 +102,82 @@ public sealed class SoTransferOutstandingExportBuilder
         return ms.ToArray();
     }
 
-    /// <summary>Excel flat row: transfer date in col 11, transfer doc no in col 12.</summary>
-    private static void WriteExcelFlatRow(IXLWorksheet ws, int r, SoTransferOutstandingBlock b, SoTransferDocumentLine? t)
+    /// <summary>No transfers: empty Tfer / Date / Doc No.</summary>
+    private static void WriteExcelLineWithoutTransfers(IXLWorksheet ws, int r, SoTransferOutstandingBlock b)
+    {
+        WriteExcelCommonLeadingColumns(ws, r, b);
+        ws.Cell(r, 8).Value = b.OrigQty;
+        ws.Cell(r, 9).Clear();
+        ws.Cell(r, 10).Clear();
+        ws.Cell(r, 11).Clear();
+        ws.Cell(r, 12).Value = b.OutstandingQty;
+        var deliveryCell = ws.Cell(r, 13);
+        if (b.DeliveryDate is { } del)
+            deliveryCell.Value = del.Date;
+        else
+            deliveryCell.Clear();
+        StyleExcelRow(ws, r);
+        ws.Cell(r, 8).Style.Font.Bold = true;
+        ws.Cell(r, 12).Style.Font.Bold = true;
+    }
+
+    /// <summary>Sum of transfer qty; blank transfer doc date/no (matches PDF total row).</summary>
+    private static void WriteExcelTransferTotalRow(IXLWorksheet ws, int r, SoTransferOutstandingBlock b, decimal totalTransferQty)
+    {
+        WriteExcelCommonLeadingColumns(ws, r, b);
+        ws.Cell(r, 8).Value = b.OrigQty;
+        ws.Cell(r, 9).Value = totalTransferQty;
+        ws.Cell(r, 10).Clear();
+        ws.Cell(r, 11).Clear();
+        ws.Cell(r, 12).Value = b.OutstandingQty;
+        var deliveryCell = ws.Cell(r, 13);
+        if (b.DeliveryDate is { } del)
+            deliveryCell.Value = del.Date;
+        else
+            deliveryCell.Clear();
+        StyleExcelRow(ws, r);
+        ws.Cell(r, 8).Style.Font.Bold = true;
+        ws.Cell(r, 12).Style.Font.Bold = true;
+    }
+
+    private static void WriteExcelTransferDetailRow(IXLWorksheet ws, int r, SoTransferOutstandingBlock b, SoTransferDocumentLine t)
+    {
+        WriteExcelCommonLeadingColumns(ws, r, b);
+        for (var c = 1; c <= 6; c++)
+            ws.Cell(r, c).Clear();
+        ws.Cell(r, 7).Value = b.SoDocNoEx;
+        ws.Cell(r, 8).Clear();
+        ws.Cell(r, 9).Value = t.TransferQty;
+        var td = ws.Cell(r, 10);
+        if (t.TransferDocDate is { } dtd)
+            td.Value = dtd.Date;
+        else
+            td.Clear();
+        ws.Cell(r, 11).Value = t.TransferDocNo;
+        ws.Cell(r, 12).Clear();
+        ws.Cell(r, 13).Clear();
+        ws.Range(r, 1, r, ExcelFlatColCount).Style.Fill.BackgroundColor = XLColor.FromArgb(248, 250, 252);
+        StyleExcelRow(ws, r);
+    }
+
+    private static void WriteExcelCommonLeadingColumns(IXLWorksheet ws, int r, SoTransferOutstandingBlock b)
     {
         var c = 1;
         ws.Cell(r, c++).Value = b.SoDocNo;
-
+        ws.Cell(r, c++).Value = b.CompanyName;
         var soDateCell = ws.Cell(r, c++);
         if (b.SoDocDate is { } sd)
             soDateCell.Value = sd.Date;
         else
             soDateCell.Clear();
-
-        ws.Cell(r, c++).Value = b.CompanyName;
+        ws.Cell(r, c++).Value = b.LineSeq;
         ws.Cell(r, c++).Value = b.ItemCode;
         ws.Cell(r, c++).Value = b.Description;
         ws.Cell(r, c++).Value = b.SoDocNoEx;
-        ws.Cell(r, c++).Value = b.OrigQty;
-        ws.Cell(r, c++).Value = t is null ? (decimal?)null : t.TransferQty;
-        ws.Cell(r, c++).Value = b.OutstandingQty;
+    }
 
-        var deliveryCell = ws.Cell(r, c++);
-        if (b.DeliveryDate is { } del)
-            deliveryCell.Value = del.Date;
-        else
-            deliveryCell.Clear();
-
-        var transferDateCell = ws.Cell(r, c++);
-        if (t?.TransferDocDate is { } transferDate)
-            transferDateCell.Value = transferDate.Date;
-        else
-            transferDateCell.Clear();
-
-        ws.Cell(r, c).Value = t?.TransferDocNo ?? "";
-
+    private static void StyleExcelRow(IXLWorksheet ws, int r)
+    {
         StyleExcelFlatNumericCols(ws, r);
         StyleExcelFlatDateCols(ws, r);
         ws.Range(r, 1, r, ExcelFlatColCount).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
@@ -140,24 +185,24 @@ public sealed class SoTransferOutstandingExportBuilder
 
     private static void StyleExcelFlatNumericCols(IXLWorksheet ws, int r)
     {
-        ws.Cell(r, 7).Style.NumberFormat.Format = "#,##0.00";
         ws.Cell(r, 8).Style.NumberFormat.Format = "#,##0.00";
         ws.Cell(r, 9).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(r, 12).Style.NumberFormat.Format = "#,##0.00";
     }
 
     private static void StyleExcelFlatDateCols(IXLWorksheet ws, int r)
     {
         const string dFmt = "dd/MM/yyyy";
-        ws.Cell(r, 2).Style.DateFormat.Format = dFmt;
+        ws.Cell(r, 3).Style.DateFormat.Format = dFmt;
         ws.Cell(r, 10).Style.DateFormat.Format = dFmt;
-        ws.Cell(r, 11).Style.DateFormat.Format = dFmt;
+        ws.Cell(r, 13).Style.DateFormat.Format = dFmt;
     }
 
     /// <summary>Minimum widths so price/date/qty columns do not visually merge (flat import layout).</summary>
     private static void ApplyExcelFlatColumnWidths(IXLWorksheet ws)
     {
         // ClosedXML column width is roughly “characters” for Calibri 11.
-        double[] mins = [12, 11, 28, 14, 40, 16, 11, 11, 11, 12, 11, 16];
+        double[] mins = [12, 28, 11, 5, 14, 40, 16, 11, 11, 11, 18, 11, 12];
         for (var i = 0; i < mins.Length; i++)
         {
             var col = ws.Column(i + 1);
@@ -231,8 +276,6 @@ public sealed class SoTransferOutstandingExportBuilder
                             table.Cell().ColumnSpan(ColCount).Element(x => x
                                 .Background(Colors.Grey.Lighten3)
                                 .PaddingVertical(4)
-                                .BorderBottom(0.5f)
-                                .BorderColor(Colors.Grey.Lighten1)
                                 .AlignLeft()
                                 .DefaultTextStyle(s => s.SemiBold().FontSize(9))
                                 .Text($"{b.SoDocNo}    {b.CompanyName}"));
@@ -260,8 +303,9 @@ public sealed class SoTransferOutstandingExportBuilder
         x.DefaultTextStyle(s => s.SemiBold())
             .AlignLeft()
             .PaddingVertical(3)
-            .BorderBottom(1)
-            .BorderColor(Colors.Blue.Darken4);
+            .Background(Colors.Grey.Lighten3)
+            .BorderBottom(0.5f)
+            .BorderColor(Colors.Grey.Medium);
 
     private static decimal SumTransferQty(IReadOnlyList<SoTransferDocumentLine> transfers)
     {
@@ -279,11 +323,11 @@ public sealed class SoTransferOutstandingExportBuilder
         table.Cell().Element(BodyCell).Text(b.ItemCode);
         table.Cell().Element(BodyCell).Text(Truncate(b.Description, 72));
         table.Cell().Element(BodyCell).Text(b.SoDocNoEx);
-        table.Cell().Element(BodyCell).Text(b.OrigQty.ToString("N2", DisplayCulture));
+        PdfQtyCellSemiBold(table, b.OrigQty.ToString("N2", DisplayCulture));
         table.Cell().Element(BodyCell).Text("");
         table.Cell().Element(BodyCell).Text("");
         table.Cell().Element(BodyCell).Text("");
-        table.Cell().Element(BodyCell).Text(b.OutstandingQty.ToString("N2", DisplayCulture));
+        PdfQtyCellSemiBold(table, b.OutstandingQty.ToString("N2", DisplayCulture));
         table.Cell().Element(BodyCell).Text(FormatShortDate(b.DeliveryDate));
     }
 
@@ -295,33 +339,40 @@ public sealed class SoTransferOutstandingExportBuilder
         table.Cell().Element(BodyCell).Text(b.ItemCode);
         table.Cell().Element(BodyCell).Text(Truncate(b.Description, 72));
         table.Cell().Element(BodyCell).Text(b.SoDocNoEx);
-        table.Cell().Element(BodyCell).Text(b.OrigQty.ToString("N2", DisplayCulture));
+        PdfQtyCellSemiBold(table, b.OrigQty.ToString("N2", DisplayCulture));
         table.Cell().Element(BodyCell).Text(totalTransferQty.ToString("N2", DisplayCulture));
         table.Cell().Element(BodyCell).Text("");
         table.Cell().Element(BodyCell).Text("");
-        table.Cell().Element(BodyCell).Text(b.OutstandingQty.ToString("N2", DisplayCulture));
+        PdfQtyCellSemiBold(table, b.OutstandingQty.ToString("N2", DisplayCulture));
         table.Cell().Element(BodyCell).Text(FormatShortDate(b.DeliveryDate));
     }
 
     private static void WritePdfTransferDetailRow(TableDescriptor table, SoTransferOutstandingBlock b, SoTransferDocumentLine t)
     {
-        table.Cell().Element(SubCell).Text(FormatShortDate(b.SoDocDate));
+        table.Cell().Element(SubCell).Text("");
         for (var i = 0; i < LeftCols; i++)
             table.Cell().Element(SubCell).Text("");
         table.Cell().Element(SubCell).Text(b.SoDocNoEx);
-        table.Cell().Element(SubCell).Text(b.OrigQty.ToString("N2", DisplayCulture));
+        table.Cell().Element(SubCell).Text("");
         table.Cell().Element(SubCell).Text(t.TransferQty.ToString("N2", DisplayCulture));
         table.Cell().Element(SubCell).Text(FormatShortDate(t.TransferDocDate));
         table.Cell().Element(SubCell).Text(t.TransferDocNo);
-        table.Cell().Element(SubCell).Text(b.OutstandingQty.ToString("N2", DisplayCulture));
-        table.Cell().Element(SubCell).Text(FormatShortDate(b.DeliveryDate));
+        table.Cell().Element(SubCell).Text("");
+        table.Cell().Element(SubCell).Text("");
     }
 
+    private static void PdfQtyCellSemiBold(TableDescriptor table, string formattedQty) =>
+        table.Cell().Element(BodyCell).Text(t =>
+        {
+            t.DefaultTextStyle(s => s.SemiBold());
+            t.Span(formattedQty);
+        });
+
     private static IContainer BodyCell(IContainer x) =>
-        x.AlignLeft().PaddingVertical(2).BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2);
+        x.AlignLeft().PaddingVertical(2);
 
     private static IContainer SubCell(IContainer x) =>
-        x.AlignLeft().Background(Colors.Grey.Lighten4).PaddingVertical(2).BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2);
+        x.AlignLeft().Background(Colors.Grey.Lighten4).PaddingVertical(2);
 
     private static string Truncate(string s, int max)
     {

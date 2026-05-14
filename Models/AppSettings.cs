@@ -14,6 +14,15 @@ public sealed class AppSettings
 
     /// <summary>Optional Excel + PDF attachments for the daily batch (same data for all recipients).</summary>
     public DailyAttachmentReportOptions DailyAttachmentReport { get; set; } = new();
+
+    /// <summary>Optional SO outstanding transfer report (Firebird <c>SL_SO</c> / <c>ST_XTRANS</c>) — Excel + PDF, same files for all recipients.</summary>
+    public SoTransferOutstandingReportOptions SoTransferOutstandingReport { get; set; } = new();
+}
+
+public sealed class SoTransferOutstandingReportOptions
+{
+    /// <summary>When true, each scheduled (or <c>--send-now</c>) batch attaches SO transfer outstanding Excel and PDF.</summary>
+    public bool Enabled { get; set; }
 }
 
 /// <summary>
@@ -65,16 +74,16 @@ public sealed class SmtpOptions
 
 public sealed class ScheduleOptions
 {
-    /// <summary>Local time-of-day in <see cref="TimeZone"/> (e.g. 08:00).</summary>
-    public string SendTime { get; set; } = "08:00";
+    /// <summary>Not used for scheduling; send time-of-day is read only from configuration <c>App:Schedule:SendTime</c> (e.g. <c>App__Schedule__SendTime</c> in .env).</summary>
+    public string SendTime { get; set; } = "";
 
     /// <summary>IANA time zone id (e.g. Asia/Kuala_Lumpur).</summary>
     public string TimeZone { get; set; } = "Asia/Kuala_Lumpur";
 
-    /// <summary><c>Daily</c> (default) or <c>Weekly</c> (use <see cref="SendDayOfWeek"/>).</summary>
+    /// <summary>Anything other than <c>Weekly</c> uses the next <c>App__Schedule__SendTime</c> on or after “now” in <see cref="TimeZone"/>. <c>Weekly</c> uses <see cref="SendDayOfWeek"/>.</summary>
     public string SendFrequency { get; set; } = "Daily";
 
-    /// <summary>When <see cref="SendFrequency"/> is <c>Weekly</c>, day name (e.g. Monday). Ignored for daily.</summary>
+    /// <summary>When <see cref="SendFrequency"/> is <c>Weekly</c>, day name (e.g. Monday). Ignored for wall-clock mode.</summary>
     public string SendDayOfWeek { get; set; } = "Monday";
 }
 

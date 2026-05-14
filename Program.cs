@@ -1,7 +1,6 @@
 using System.Globalization;
 using DotNetEnv;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting.WindowsServices;
 using QuestPDF.Infrastructure;
 using Microsoft.Extensions.Options;
 using SqlAccountingEmailWorker;
@@ -14,11 +13,11 @@ QuestPDF.Settings.License = LicenseType.Community;
 // Use executable directory so appsettings.json and local logs work when running as a Windows Service.
 var contentRoot = AppContext.BaseDirectory;
 
-// Same idea as eQuotation: optional .env (e.g. TENANT_CODE=TNT10005). Later files override earlier.
+// Optional .env in cwd, then next to the executable — last file wins so bin\...\ .env always overrides a stray .env in another working directory.
 foreach (var envPath in new[]
          {
-             Path.Combine(contentRoot, ".env"),
-             Path.Combine(Directory.GetCurrentDirectory(), ".env")
+             Path.Combine(Directory.GetCurrentDirectory(), ".env"),
+             Path.Combine(contentRoot, ".env")
          })
 {
     if (File.Exists(envPath))
@@ -26,9 +25,8 @@ foreach (var envPath in new[]
 }
 
 var previewByArg = args.Contains("--preview-so", StringComparer.OrdinalIgnoreCase);
-var previewByDefaultInteractive = args.Length == 0 && Environment.UserInteractive && !WindowsServiceHelpers.IsWindowsService();
 
-if (previewByArg || previewByDefaultInteractive)
+if (previewByArg)
 {
     var previewBuilder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
     {
