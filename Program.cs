@@ -83,7 +83,7 @@ if (testSmtpIdx >= 0)
     return;
 }
 
-// Immediate SY_USER + UDF_AEMAIL test using ScheduledTestEmail subject/body (no schedule wait, no send history).
+// Immediate SY_USER + UDF_AESO test using ScheduledTestEmail subject/body (no schedule wait, no send history).
 if (args.Contains("--sy-user-test-email", StringComparer.OrdinalIgnoreCase))
 {
     using var host = builder.Build();
@@ -112,7 +112,7 @@ if (args.Contains("--sy-user-test-email", StringComparer.OrdinalIgnoreCase))
     var recipients = await firebird.GetRecipientsAsync(CancellationToken.None).ConfigureAwait(false);
     if (recipients.Count == 0)
     {
-        Console.Error.WriteLine("No recipients: SY_USER needs non-empty EMAIL and truthy UDF_AEMAIL.");
+        Console.Error.WriteLine("No recipients: SY_USER needs non-empty EMAIL and truthy UDF_AESO.");
         Environment.ExitCode = 1;
         return;
     }
@@ -126,7 +126,7 @@ if (args.Contains("--sy-user-test-email", StringComparer.OrdinalIgnoreCase))
         sent++;
     }
 
-    Console.WriteLine($"SY_USER test: sent to {sent} recipient(s) (EMAIL + UDF_AEMAIL).");
+    Console.WriteLine($"SY_USER test: sent to {sent} recipient(s) (EMAIL + UDF_AESO).");
     return;
 }
 
@@ -183,7 +183,7 @@ if (args.Contains("--wait-scheduled-test", StringComparer.OrdinalIgnoreCase))
             var recipients = await firebird.GetRecipientsAsync(CancellationToken.None).ConfigureAwait(false);
             if (recipients.Count == 0)
             {
-                Console.Error.WriteLine("No recipients (SY_USER with non-empty EMAIL and UDF_AEMAIL enabled).");
+                Console.Error.WriteLine("No recipients (SY_USER with non-empty EMAIL and UDF_AESO enabled).");
                 Environment.ExitCode = 1;
                 return;
             }
@@ -195,7 +195,7 @@ if (args.Contains("--wait-scheduled-test", StringComparer.OrdinalIgnoreCase))
                 await emailSender.SendPlainTextAsync(r.Email, subject, te.PlainBody, CancellationToken.None).ConfigureAwait(false);
             }
 
-            Console.WriteLine($"Scheduled test email sent to {recipients.Count} recipient(s) from SY_USER (UDF_AEMAIL).");
+            Console.WriteLine($"Scheduled test email sent to {recipients.Count} recipient(s) from SY_USER (UDF_AESO).");
         }
     }
     catch (Exception ex)

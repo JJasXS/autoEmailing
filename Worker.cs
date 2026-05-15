@@ -275,11 +275,11 @@ public sealed class Worker : BackgroundService
 
         if (recipients.Count == 0)
         {
-            _logger.LogWarning("Scheduled test: no recipients (SY_USER with EMAIL and UDF_AEMAIL enabled).");
+            _logger.LogWarning("Scheduled test: no recipients (SY_USER with EMAIL and UDF_AESO enabled).");
             return;
         }
 
-        _logger.LogInformation("Scheduled test: sending to {Count} SY_USER recipient(s) (UDF_AEMAIL).", recipients.Count);
+        _logger.LogInformation("Scheduled test: sending to {Count} SY_USER recipient(s) (UDF_AESO).", recipients.Count);
 
         foreach (var r in recipients)
         {

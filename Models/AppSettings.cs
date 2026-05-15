@@ -103,7 +103,7 @@ public sealed class ScheduledTestEmailOptions
 
     /// <summary>
     /// If set, send the test only to this address. If empty, sends to every <c>SY_USER</c> row returned by
-    /// <see cref="FirebirdUserReader.GetRecipientsAsync"/> (non-empty <c>EMAIL</c> and truthy <c>UDF_AEMAIL</c>).
+    /// <see cref="FirebirdUserReader.GetRecipientsAsync"/> (non-empty <c>EMAIL</c> and truthy <c>UDF_AESO</c>).
     /// </summary>
     public string To { get; set; } = "";
 

@@ -85,12 +85,12 @@ public sealed class FirebirdUserReader
     }
 
     /// <summary>
-    /// Read-only: loads users with email; UDF_AEMAIL is evaluated in .NET so BOOLEAN and text values both work.
+    /// Read-only: loads users with email; UDF_AESO is evaluated in .NET so BOOLEAN and text values both work.
     /// </summary>
     public async Task<IReadOnlyList<EmailRecipient>> GetRecipientsAsync(CancellationToken cancellationToken)
     {
         const string sql = """
-            SELECT CODE, NAME, EMAIL, UDF_AEMAIL
+            SELECT CODE, NAME, EMAIL, UDF_AESO
             FROM SY_USER
             WHERE COALESCE(EMAIL, '') <> ''
             """;
@@ -113,7 +113,7 @@ public sealed class FirebirdUserReader
             if (string.IsNullOrEmpty(email))
                 continue;
 
-            var udf = reader["UDF_AEMAIL"];
+            var udf = reader["UDF_AESO"];
             if (!IsAutoEmailEnabled(udf))
                 continue;
 
